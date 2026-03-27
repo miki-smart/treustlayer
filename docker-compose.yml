@@ -1,0 +1,48 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: trustlayer_api
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/trustlayer
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    networks:
+      - trustlayer_net
+    restart: on-failure
+
+  db:
+    image: postgres:15-alpine
+    container_name: trustlayer_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: trustlayer
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d trustlayer"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - trustlayer_net
+
+volumes:
+  postgres_data:
+
+networks:
+  trustlayer_net:
+    driver: bridge
