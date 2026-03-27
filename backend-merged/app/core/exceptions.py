@@ -8,6 +8,13 @@ class DomainError(Exception):
     """Base domain exception."""
 
 
+class BadRequestError(DomainError):
+    """Invalid input or business rule violation (maps to HTTP 400)."""
+
+    def __init__(self, message: str = "Bad request"):
+        super().__init__(message)
+
+
 class NotFoundError(DomainError):
     def __init__(self, resource: str, identifier: str = ""):
         msg = f"{resource} not found"

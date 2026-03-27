@@ -79,12 +79,12 @@ export default function ConsentPage() {
 
   const { data: consents = [], isLoading } = useQuery({
     queryKey: ["consents", userId],
-    queryFn: () => consentApi.listForUser(userId),
+    queryFn: () => consentApi.listMine(),
     enabled: !!userId,
   });
 
   const revokeMutation = useMutation({
-    mutationFn: (client_id: string) => consentApi.revoke(userId, client_id),
+    mutationFn: (client_id: string) => consentApi.revoke(client_id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["consents", userId] });
       toast({ title: "Consent revoked" });
@@ -93,7 +93,7 @@ export default function ConsentPage() {
   });
 
   const grantMutation = useMutation({
-    mutationFn: () => consentApi.grant(userId, gClientId, gScopes.split(/[\s,]+/).filter(Boolean)),
+    mutationFn: () => consentApi.grant(gClientId, gScopes.split(/[\s,]+/).filter(Boolean)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["consents", userId] });
       setGrantOpen(false);

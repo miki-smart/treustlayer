@@ -26,7 +26,7 @@ from app.modules.biometric.presentation.schemas.biometric_schemas import Biometr
 from app.modules.biometric.domain.entities.biometric_record import BiometricStatus
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/biometric", tags=["biometric"])
+router = APIRouter()
 
 
 @router.post("/face/verify", response_model=BiometricRecordResponse, status_code=201)

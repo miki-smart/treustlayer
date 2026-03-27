@@ -4,7 +4,6 @@ OCR Service — Gemini AI document extraction.
 import logging
 from typing import Any, Dict, Optional
 
-import google.generativeai as genai
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -18,12 +17,21 @@ class OCRService:
     """
     
     def __init__(self):
-        if settings.GEMINI_API_KEY:
-            genai.configure(api_key=settings.GEMINI_API_KEY)
-            self.model = genai.GenerativeModel(settings.GEMINI_MODEL)
-        else:
+        self.model = None
+        if not settings.GEMINI_API_KEY:
             logger.warning("GEMINI_API_KEY not configured, OCR will be disabled")
-            self.model = None
+            return
+        try:
+            import google.generativeai as genai
+        except ImportError as exc:
+            logger.warning(
+                "google-generativeai is not installed (%s); OCR disabled. "
+                "Install with: pip install google-generativeai",
+                exc,
+            )
+            return
+        genai.configure(api_key=settings.GEMINI_API_KEY)
+        self.model = genai.GenerativeModel(settings.GEMINI_MODEL)
     
     async def extract_id_document(
         self, front_image_bytes: bytes, back_image_bytes: Optional[bytes] = None

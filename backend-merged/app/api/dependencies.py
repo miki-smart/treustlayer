@@ -11,6 +11,9 @@ from app.core.database import get_async_session
 from app.core.exceptions import http_forbidden, http_unauthorized
 from app.core.security import decode_token
 
+# Alias for module routers that still depend on the legacy name.
+get_db = get_async_session
+
 
 async def get_current_user_id(
     authorization: Annotated[str | None, Header()] = None

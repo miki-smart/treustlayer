@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 
-from app.api.dependencies import DBSession, CurrentUserId, require_admin
+from app.api.dependencies import CurrentUserRole, DBSession, CurrentUserId, require_admin
 from app.modules.app_registry.infrastructure.persistence.app_repository_impl import SQLAlchemyAppRepository
 from app.modules.identity.infrastructure.persistence.user_repository_impl import SQLAlchemyUserRepository
 from app.modules.app_registry.application.use_cases.register_app import RegisterAppUseCase
@@ -235,6 +235,7 @@ async def deactivate_app(
     app_id: str,
     session: DBSession,
     current_user_id: CurrentUserId,
+    current_role: CurrentUserRole,
 ):
     """
     Deactivate app.
@@ -247,8 +248,11 @@ async def deactivate_app(
     if not app:
         raise HTTPException(status_code=404, detail="App not found")
     
-    if app.owner_id != current_user_id:
-        raise HTTPException(status_code=403, detail="Only app owner can deactivate")
+    if app.owner_id != current_user_id and current_role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Only app owner or admin can deactivate",
+        )
     
     app.deactivate()
     await app_repo.update(app)

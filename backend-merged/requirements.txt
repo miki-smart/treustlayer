@@ -16,8 +16,8 @@ passlib[bcrypt]==1.7.4
 cryptography==42.0.2
 email-validator==2.1.0.post1
 
-# AI Integration
-google-genai==1.68.0
+# AI Integration (OCRService uses import google.generativeai — this package, not google-genai)
+google-generativeai>=0.8.0,<1.0.0
 
 # Biometric Processing
 opencv-python==4.9.0.80

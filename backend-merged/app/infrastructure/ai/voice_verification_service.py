@@ -6,10 +6,10 @@ Features:
 - Liveness detection (basic)
 - Spoof detection (basic)
 """
+import io
 import logging
 from typing import Tuple
 
-import librosa
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,9 @@ class VoiceVerificationService:
             (liveness_score, spoof_probability, quality_score)
         """
         try:
-            y, sr = librosa.load(audio_bytes, sr=None)
+            import librosa
+
+            y, sr = librosa.load(io.BytesIO(audio_bytes), sr=None)
             
             duration = librosa.get_duration(y=y, sr=sr)
             
@@ -61,6 +63,8 @@ class VoiceVerificationService:
         
         Production: Use dedicated anti-spoofing model.
         """
+        import librosa
+
         rms = librosa.feature.rms(y=audio)[0]
         energy = np.mean(rms)
         
@@ -73,6 +77,8 @@ class VoiceVerificationService:
         """
         Estimate audio quality score.
         """
+        import librosa
+
         spectral_centroid = librosa.feature.spectral_centroid(y=audio, sr=sample_rate)[0]
         quality = np.mean(spectral_centroid) / 5000.0
         

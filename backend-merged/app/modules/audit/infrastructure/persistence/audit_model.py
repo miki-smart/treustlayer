@@ -19,6 +19,7 @@ class AuditEntryModel(Base):
     action = Column(String(100), nullable=False, index=True)
     resource_type = Column(String(100), nullable=False, index=True)
     resource_id = Column(UUID, nullable=True, index=True)
-    metadata = Column(JSONB, nullable=False, server_default="{}")
+    # Python name cannot be "metadata" — reserved on Declarative API; DB column stays "metadata".
+    audit_metadata = Column("metadata", JSONB, nullable=False, server_default="{}")
     changes = Column(JSONB, nullable=False, server_default="{}")
     timestamp = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)

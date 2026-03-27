@@ -7,10 +7,10 @@ Features:
 - Spoof detection (basic)
 - Face matching with ID document
 """
+import io
 import logging
 from typing import Tuple
 
-import face_recognition
 import numpy as np
 from PIL import Image
 
@@ -36,8 +36,12 @@ class FaceVerificationService:
             (liveness_score, spoof_probability, quality_score)
         """
         try:
-            face_image = face_recognition.load_image_file(Image.open(face_image_bytes))
-            
+            import face_recognition
+
+            face_image = face_recognition.load_image_file(
+                Image.open(io.BytesIO(face_image_bytes))
+            )
+
             face_locations = face_recognition.face_locations(face_image)
             
             if not face_locations:
@@ -70,8 +74,14 @@ class FaceVerificationService:
             similarity_score (0-1)
         """
         try:
-            face_image = face_recognition.load_image_file(Image.open(face_image_bytes))
-            id_image = face_recognition.load_image_file(Image.open(id_photo_bytes))
+            import face_recognition
+
+            face_image = face_recognition.load_image_file(
+                Image.open(io.BytesIO(face_image_bytes))
+            )
+            id_image = face_recognition.load_image_file(
+                Image.open(io.BytesIO(id_photo_bytes))
+            )
             
             face_encodings = face_recognition.face_encodings(face_image)
             id_encodings = face_recognition.face_encodings(id_image)

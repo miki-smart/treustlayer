@@ -32,9 +32,9 @@ class GrantConsentRequest(BaseModel):
 
 @router.post("/grant", status_code=201, response_model=ConsentResponse)
 async def grant_consent(
-    payload: GrantConsentRequest,
     session: DBSession,
     current_user_id: CurrentUserId,
+    payload: GrantConsentRequest,
 ):
     """
     Grant consent for OAuth2 client.
@@ -66,9 +66,9 @@ class RevokeConsentRequest(BaseModel):
 
 @router.post("/revoke", status_code=204)
 async def revoke_consent(
-    payload: RevokeConsentRequest,
     session: DBSession,
     current_user_id: CurrentUserId,
+    payload: RevokeConsentRequest,
 ):
     """
     Revoke consent for OAuth2 client.

@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.identity.infrastructure.persistence.user_model import UserModel
-from app.modules.kyc.infrastructure.persistence.kyc_model import KYCVerificationModel
+from app.modules.kyc.infrastructure.persistence.kyc_model import KYCModel
 from app.modules.kyc.domain.entities.kyc_verification import KYCStatus
 from app.modules.app_registry.infrastructure.persistence.app_model import AppModel
 from app.modules.auth.infrastructure.persistence.auth_model import RefreshTokenModel
@@ -47,16 +47,16 @@ class AnalyticsService:
         
         # KYC pending
         kyc_pending_result = await self.session.execute(
-            select(func.count(KYCVerificationModel.id)).where(
-                KYCVerificationModel.status == KYCStatus.PENDING.value
+            select(func.count(KYCModel.id)).where(
+                KYCModel.status == KYCStatus.PENDING.value
             )
         )
         kyc_pending = kyc_pending_result.scalar() or 0
         
         # KYC approved
         kyc_approved_result = await self.session.execute(
-            select(func.count(KYCVerificationModel.id)).where(
-                KYCVerificationModel.status == KYCStatus.APPROVED.value
+            select(func.count(KYCModel.id)).where(
+                KYCModel.status == KYCStatus.APPROVED.value
             )
         )
         kyc_approved = kyc_approved_result.scalar() or 0
@@ -85,16 +85,16 @@ class AnalyticsService:
         
         # KYC in review
         kyc_in_review_result = await self.session.execute(
-            select(func.count(KYCVerificationModel.id)).where(
-                KYCVerificationModel.status == KYCStatus.IN_REVIEW.value
+            select(func.count(KYCModel.id)).where(
+                KYCModel.status == KYCStatus.IN_REVIEW.value
             )
         )
         kyc_in_review = kyc_in_review_result.scalar() or 0
         
         # KYC rejected
         kyc_rejected_result = await self.session.execute(
-            select(func.count(KYCVerificationModel.id)).where(
-                KYCVerificationModel.status == KYCStatus.REJECTED.value
+            select(func.count(KYCModel.id)).where(
+                KYCModel.status == KYCStatus.REJECTED.value
             )
         )
         kyc_rejected = kyc_rejected_result.scalar() or 0

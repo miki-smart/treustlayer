@@ -47,7 +47,7 @@ from app.modules.digital_identity.application.dto.identity_dto import (
 from app.core.exceptions import DomainError
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/identity", tags=["digital_identity"])
+router = APIRouter()
 
 
 @router.post("/create", response_model=IdentityResponse, status_code=201)

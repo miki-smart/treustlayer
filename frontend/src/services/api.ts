@@ -277,12 +277,14 @@ export const kycApi = {
 // ── Consent ───────────────────────────────────────────────────────────────────
 
 export const consentApi = {
-  grant: (user_id: string, client_id: string, scopes: string[]) =>
-    api.post<ConsentResponse>("/consent/grant", { user_id, client_id, scopes }),
-  revoke: (user_id: string, client_id: string) =>
-    api.post<void>("/consent/revoke", { user_id, client_id }),
-  listForUser: (user_id: string) =>
-    api.get<ConsentResponse[]>(`/consent/user/${user_id}`),
+  /** User is taken from the Bearer token; body is only client_id + scopes. */
+  grant: (client_id: string, scopes: string[]) =>
+    api.post<ConsentResponse>("/consent/grant", { client_id, scopes }),
+  revoke: (client_id: string) => api.post<void>("/consent/revoke", { client_id }),
+  /** Preferred: current user from JWT. */
+  listMine: () => api.get<ConsentResponse[]>("/consent/me"),
+  /** Same as listMine when `user_id` matches the authenticated user (403 otherwise). */
+  listForUser: (user_id: string) => api.get<ConsentResponse[]>(`/consent/user/${user_id}`),
 };
 
 // ── Apps ──────────────────────────────────────────────────────────────────────

@@ -25,7 +25,7 @@ class SQLAlchemyAuditRepository(AuditRepository):
             action=entry.action,
             resource_type=entry.resource_type,
             resource_id=entry.resource_id,
-            metadata=entry.metadata,
+            audit_metadata=entry.metadata,
             changes=entry.changes,
             timestamp=entry.timestamp,
         )
@@ -107,7 +107,7 @@ class SQLAlchemyAuditRepository(AuditRepository):
             action=model.action,
             resource_type=model.resource_type,
             resource_id=str(model.resource_id) if model.resource_id else None,
-            metadata=model.metadata,
+            metadata=model.audit_metadata,
             changes=model.changes,
             timestamp=model.timestamp,
         )
