@@ -141,6 +141,76 @@ audit             → Audit logging
 
 ---
 
+## 🧪 Testing
+
+TrustLayer ID includes a comprehensive test suite with 150+ unit tests and integration tests.
+
+### Running Tests
+
+**All Tests (Backend + Frontend):**
+```bash
+# Linux/Mac
+./run_tests.sh
+
+# Windows
+.\run_tests.ps1
+```
+
+**Backend Tests Only:**
+```bash
+cd backend-merged
+
+# Unit tests
+pytest tests/unit -v
+
+# Integration tests
+pytest tests/integration -v
+
+# With coverage
+pytest --cov=app --cov-report=html
+```
+
+**Frontend Tests Only:**
+```bash
+cd frontend
+
+# Run tests
+npm test
+
+# Watch mode
+npm run test:watch
+
+# With coverage
+npm test -- --coverage
+```
+
+### Test Coverage
+
+- **Backend Unit Tests:** 100+ tests
+  - Auth Module (15+ tests)
+  - KYC Module (12+ tests)
+  - Consent Module (8+ tests)
+  - App Registry (10+ tests)
+  - Webhook Module (5+ tests)
+  - Trust Scoring (4+ tests)
+  - Domain Entities (20+ tests)
+  - Security (15+ tests)
+  - Services (10+ tests)
+
+- **Frontend Unit Tests:** 30+ tests
+  - Component tests
+  - Page tests
+  - Context tests
+  - Integration tests
+
+- **Integration Tests:** 6+ tests
+  - OIDC flow
+  - KYC workflow
+
+See [UNIT_TEST_SUMMARY.md](./UNIT_TEST_SUMMARY.md) for detailed test documentation.
+
+---
+
 ## 🚀 Quick Start
 
 ### Prerequisites

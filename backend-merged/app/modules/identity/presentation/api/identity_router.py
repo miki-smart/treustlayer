@@ -232,9 +232,9 @@ async def verify_email(
     dependencies=[Depends(require_admin)],
 )
 async def list_users(
+    session: DBSession,
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
-    session: DBSession = Depends(),
 ):
     results = await ListUsersUseCase(_repo(session)).execute(skip=skip, limit=limit)
     return [UserResponse(**r.__dict__) for r in results]

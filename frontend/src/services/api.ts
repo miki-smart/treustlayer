@@ -3,7 +3,7 @@
  * Base URL: /api/v1  (proxied by nginx to the FastAPI backend)
  */
 
-const BASE = "/api/v1";
+const BASE = import.meta.env.VITE_API_BASE_URL || "/api/v1";
 
 // ── Token storage ─────────────────────────────────────────────────────────────
 
@@ -246,25 +246,32 @@ export const kycApi = {
     return data as OcrResponse;
   },
 
-  submitKyc: (user_id: string, body: {
-    document_type: string;
-    document_number: string;
-    document_url?: string | null;
-    face_image_url?: string | null;
-    extracted_data?: Record<string, unknown> | null;
-  }) => api.post<KYCResponse>(`/kyc/submit/${user_id}`, body),
+  submitKyc: async (idFront: File, idBack: File | null, utilityBill: File, faceImage: File): Promise<KYCResponse> => {
+    const formData = new FormData();
+    formData.append("id_front", idFront);
+    if (idBack) formData.append("id_back", idBack);
+    formData.append("utility_bill", utilityBill);
+    formData.append("face_image", faceImage);
+    const token = tokenStore.get();
+    const res = await fetch(`${BASE}/kyc/submit`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.detail || `KYC submission failed: HTTP ${res.status}`);
+    return data as KYCResponse;
+  },
 
-  getStatus: (user_id: string) => api.get<KYCResponse>(`/kyc/status/${user_id}`),
+  getStatus: () => api.get<KYCResponse>(`/kyc/status`),
 
-  listSubmissions: (status = "all", skip = 0, limit = 50) =>
-    api.get<KYCResponse[]>(`/kyc/submissions?kyc_status=${status}&skip=${skip}&limit=${limit}`),
+  listQueue: (status = "pending", skip = 0, limit = 50) =>
+    api.get<KYCResponse[]>(`/kyc/queue?status=${status}&skip=${skip}&limit=${limit}`),
 
-  approve: (kyc_id: string) => api.post<KYCResponse>(`/kyc/${kyc_id}/approve`),
+  approve: (kyc_id: string, tier: string, notes?: string) => 
+    api.post<KYCResponse>(`/kyc/approve/${kyc_id}`, { tier, notes }),
   reject: (kyc_id: string, reason: string) =>
-    api.post<KYCResponse>(`/kyc/${kyc_id}/reject`, { reason }),
-  flag: (kyc_id: string, reason: string) =>
-    api.post<KYCResponse>(`/kyc/${kyc_id}/flag`, { reason }),
-  delete: (kyc_id: string) => api.delete<void>(`/kyc/${kyc_id}`),
+    api.post<KYCResponse>(`/kyc/reject/${kyc_id}`, { reason }),
 };
 
 // ── Consent ───────────────────────────────────────────────────────────────────
@@ -323,5 +330,6 @@ export const sessionApi = {
 
 export const trustApi = {
   getProfile: () => api.get<TrustProfile>("/trust/profile"),
+  getUserProfile: (userId: string) => api.get<TrustProfile>(`/trust/profile/${userId}`),
   evaluate: () => api.post<TrustProfile>("/trust/evaluate"),
 };

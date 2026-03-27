@@ -14,6 +14,11 @@ import AppMarketplacePage from "./pages/AppMarketplacePage";
 import ConsentPage from "./pages/ConsentPage";
 import SessionPage from "./pages/SessionPage";
 import SettingsPage from "./pages/SettingsPage";
+import KYCQueuePage from "./pages/KYCQueuePage";
+import MyAppsPage from "./pages/MyAppsPage";
+import AppApprovalPage from "./pages/AppApprovalPage";
+import AdminDashboardPage from "./pages/AdminDashboardPage";
+import AuditLogsPage from "./pages/AuditLogsPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -58,6 +63,38 @@ const AppRoutes = () => (
     <Route path="/apps" element={
       <ProtectedRoute allow={["admin", "app_owner"]}>
         <AppMarketplacePage />
+      </ProtectedRoute>
+    } />
+    
+    <Route path="/my-apps" element={
+      <ProtectedRoute allow={["admin", "app_owner"]}>
+        <MyAppsPage />
+      </ProtectedRoute>
+    } />
+    
+    {/* Admin Only */}
+    <Route path="/admin" element={
+      <ProtectedRoute allow={["admin"]}>
+        <AdminDashboardPage />
+      </ProtectedRoute>
+    } />
+    
+    <Route path="/app-approvals" element={
+      <ProtectedRoute allow={["admin"]}>
+        <AppApprovalPage />
+      </ProtectedRoute>
+    } />
+    
+    <Route path="/audit-logs" element={
+      <ProtectedRoute allow={["admin"]}>
+        <AuditLogsPage />
+      </ProtectedRoute>
+    } />
+
+    {/* KYC Approver + Admin */}
+    <Route path="/kyc-queue" element={
+      <ProtectedRoute allow={["admin", "kyc_approver"]}>
+        <KYCQueuePage />
       </ProtectedRoute>
     } />
 
