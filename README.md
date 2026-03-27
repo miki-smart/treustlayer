@@ -124,6 +124,19 @@ frontend/
 └── vite.config.ts
 ```
 
+### Payment app (external integration demo)
+Sample **registered OAuth client** flow: sign-in + per-transaction introspection and limits. Lives in `payment-app/` (Vite + Express).
+
+```
+payment-app/
+├── server/          ← API (payments, auth proxy, webhooks)
+├── shared/          ← Transaction policy
+├── src/             ← Dashboard UI
+└── package.json
+```
+
+Run locally: `cd payment-app && npm install && npm run dev` (UI on port 8080, API on 3001). See `payment-app/README.md`.
+
 ### Database (11 Schemas, 13 Tables)
 ```sql
 identity          → User management
