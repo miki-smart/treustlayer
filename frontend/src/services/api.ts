@@ -71,21 +71,32 @@ export interface LoginResponse {
   role: string;
 }
 
+/** Backend KYCResponse (queue + status); optional fields differ by endpoint */
 export interface KYCResponse {
   id: string;
   user_id: string;
-  user_name?: string | null;
-  user_email?: string | null;
   status: string;
   tier: string;
-  trust_score: number;
-  document_type: string | null;
-  document_number: string | null;
-  rejection_reason: string | null;
-  face_similarity_score: number | null;
-  ocr_confidence?: number | null;
+  full_name?: string | null;
+  date_of_birth?: string | null;
+  document_type?: string | null;
+  document_number?: string | null;
+  address?: string | null;
+  id_front_url?: string | null;
+  id_back_url?: string | null;
+  utility_bill_url?: string | null;
+  face_image_url?: string | null;
+  overall_confidence?: number;
+  risk_score?: number;
+  rejection_reason?: string | null;
+  reviewer_id?: string | null;
   submitted_at?: string | null;
   reviewed_at?: string | null;
+  user_name?: string | null;
+  user_email?: string | null;
+  trust_score?: number;
+  face_similarity_score?: number | null;
+  ocr_confidence?: number | null;
   extracted_data?: Record<string, unknown> | null;
 }
 
@@ -129,8 +140,13 @@ export interface AppResponse {
   allowed_scopes: string[];
   redirect_uris: string[];
   description: string;
+  logo_url?: string | null;
+  category?: string;
   is_active: boolean;
   is_approved: boolean;
+  is_public?: boolean;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface ConsentResponse {
@@ -147,8 +163,11 @@ export interface ActiveSessionResponse {
   id: string;
   client_id: string;
   scopes: string[];
+  device_info?: string | null;
+  ip_address?: string | null;
   expires_at: string;
   created_at: string;
+  last_used_at?: string | null;
 }
 
 export interface WebhookSubscriptionResponse {
@@ -156,6 +175,8 @@ export interface WebhookSubscriptionResponse {
   client_id: string;
   event_type: string;
   target_url: string;
+  /** Returned once on subscribe; backend field name `secret` */
+  secret?: string | null;
   signing_secret?: string | null;
   is_active: boolean;
   created_at: string;
@@ -163,21 +184,54 @@ export interface WebhookSubscriptionResponse {
 
 export interface WebhookDeliveryResponse {
   id: string;
-  client_id: string;
+  subscription_id: string;
   event_type: string;
   target_url: string;
   status: string;
   attempts: number;
-  max_attempts: number;
-  delivered_at?: string | null;
-  response_code?: number | null;
+  last_attempt_at?: string | null;
+  next_retry_at?: string | null;
+  response_status?: number | null;
+  error_message?: string | null;
   created_at: string;
 }
 
+/** Matches backend TrustProfileResponse */
 export interface TrustProfile {
+  user_id: string;
   trust_score: number;
-  kyc_tier: number;
   risk_level: string;
+  email_verified: boolean;
+  phone_verified: boolean;
+  kyc_tier: number;
+  face_verified: boolean;
+  voice_verified: boolean;
+  digital_identity_active: boolean;
+  account_age_days: number;
+  last_calculated_at: string;
+}
+
+export interface DashboardStats {
+  total_users: number;
+  verified_users: number;
+  kyc_pending: number;
+  kyc_in_review: number;
+  kyc_approved: number;
+  kyc_rejected: number;
+  total_apps: number;
+  apps_pending: number;
+  active_sessions: number;
+}
+
+export interface AuditEntryResponse {
+  id: string;
+  actor_id: string | null;
+  action: string;
+  resource_type: string;
+  resource_id: string | null;
+  metadata: Record<string, unknown>;
+  changes: Record<string, unknown>;
+  timestamp: string;
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -290,17 +344,20 @@ export const consentApi = {
 // ── Apps ──────────────────────────────────────────────────────────────────────
 
 export const appsApi = {
-  register: (body: { name: string; allowed_scopes: string[]; redirect_uris: string[]; description?: string }) =>
-    api.post<AppResponse>("/apps/", body),
+  register: (body: {
+    name: string;
+    allowed_scopes: string[];
+    redirect_uris: string[];
+    description?: string;
+    category?: string;
+    logo_url?: string | null;
+  }) => api.post<AppResponse>("/apps/", body),
+  /** Admin only */
   list: (skip = 0, limit = 50) => api.get<AppResponse[]>(`/apps/?skip=${skip}&limit=${limit}`),
-  get: (app_id: string) => api.get<AppResponse>(`/apps/${app_id}`),
-  update: (app_id: string, body: { name?: string; description?: string; allowed_scopes?: string[]; redirect_uris?: string[] }) =>
-    api.patch<AppResponse>(`/apps/${app_id}`, body),
   approve: (app_id: string) => api.post<AppResponse>(`/apps/${app_id}/approve`),
   deactivate: (app_id: string) => api.post<AppResponse>(`/apps/${app_id}/deactivate`),
-  rotateApiKey: (app_id: string) => api.post<AppResponse>(`/apps/${app_id}/rotate-api-key`),
-  rotateSecret: (app_id: string) => api.post<AppResponse>(`/apps/${app_id}/rotate-secret`),
-  marketplace: () => api.get<AppResponse[]>("/apps/marketplace"),
+  marketplace: (skip = 0, limit = 50) =>
+    api.get<AppResponse[]>(`/apps/marketplace?skip=${skip}&limit=${limit}`),
   mine: () => api.get<AppResponse[]>("/apps/mine"),
 };
 
@@ -310,20 +367,20 @@ export const webhooksApi = {
   subscribe: (client_id: string, event_type: string, target_url: string) =>
     api.post<WebhookSubscriptionResponse>("/webhooks/subscribe", { client_id, event_type, target_url }),
   deactivate: (sub_id: string) => api.delete<void>(`/webhooks/subscriptions/${sub_id}`),
-  listSubscriptions: (skip = 0, limit = 50) =>
-    api.get<WebhookSubscriptionResponse[]>(`/webhooks/subscriptions?skip=${skip}&limit=${limit}`),
-  listDeliveries: () => api.get<WebhookDeliveryResponse[]>("/webhooks/deliveries"),
-  getDelivery: (id: string) => api.get<WebhookDeliveryResponse>(`/webhooks/deliveries/${id}`),
+  /** Required query `client_id` matches backend */
+  listSubscriptions: (client_id: string) =>
+    api.get<WebhookSubscriptionResponse[]>(`/webhooks/subscriptions?client_id=${encodeURIComponent(client_id)}`),
+  listDeliveries: (subscription_id: string, skip = 0, limit = 50) =>
+    api.get<WebhookDeliveryResponse[]>(
+      `/webhooks/deliveries/${encodeURIComponent(subscription_id)}?skip=${skip}&limit=${limit}`,
+    ),
   retry: (delivery_id: string) => api.post<WebhookDeliveryResponse>(`/webhooks/retry/${delivery_id}`),
-  deliveriesForSub: (sub_id: string, skip = 0, limit = 50) =>
-    api.get<WebhookDeliveryResponse[]>(`/webhooks/subscriptions/${sub_id}/deliveries?skip=${skip}&limit=${limit}`),
 };
 
 // ── Sessions ──────────────────────────────────────────────────────────────────
 
 export const sessionApi = {
-  listActive: (skip = 0, limit = 20) =>
-    api.get<ActiveSessionResponse[]>(`/session/me/active?skip=${skip}&limit=${limit}`),
+  listActive: () => api.get<ActiveSessionResponse[]>("/session/me/active"),
   revoke: (token_id: string) => api.delete<void>(`/session/${token_id}`),
   revokeAll: () => api.post<void>("/session/revoke-all"),
 };
@@ -334,4 +391,23 @@ export const trustApi = {
   getProfile: () => api.get<TrustProfile>("/trust/profile"),
   getUserProfile: (userId: string) => api.get<TrustProfile>(`/trust/profile/${userId}`),
   evaluate: () => api.post<TrustProfile>("/trust/evaluate"),
+};
+
+// ── Dashboard (admin) ───────────────────────────────────────────────────────────
+
+export const dashboardApi = {
+  getStats: () => api.get<DashboardStats>("/dashboard/stats"),
+};
+
+// ── Audit (admin) ───────────────────────────────────────────────────────────────
+
+export const auditApi = {
+  list: (opts?: { action?: string; resource_type?: string; skip?: number; limit?: number }) => {
+    const p = new URLSearchParams();
+    p.set("skip", String(opts?.skip ?? 0));
+    p.set("limit", String(opts?.limit ?? 100));
+    if (opts?.action) p.set("action", opts.action);
+    if (opts?.resource_type) p.set("resource_type", opts.resource_type);
+    return api.get<AuditEntryResponse[]>(`/audit/entries?${p.toString()}`);
+  },
 };

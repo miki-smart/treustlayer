@@ -1,11 +1,20 @@
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
-import { sessionApi, webhooksApi, ActiveSessionResponse, WebhookSubscriptionResponse, WebhookDeliveryResponse } from "@/services/api";
+import { sessionApi, webhooksApi, appsApi, type ActiveSessionResponse } from "@/services/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { MonitorSmartphone, LogOut, RotateCcw, Webhook, CheckCircle2, XCircle, AlertCircle, Clock } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { MonitorSmartphone, LogOut, RotateCcw, Webhook, CheckCircle2, XCircle, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { PageHeader } from "@/components/shared/PageHeader";
 
@@ -32,8 +41,10 @@ function SessionCard({ session, onRevoke }: { session: ActiveSessionResponse; on
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex flex-wrap gap-1">
-          {session.scopes.map(s => (
-            <span key={s} className="inline-flex rounded-full bg-muted text-muted-foreground px-2 py-0.5 text-xs">{s}</span>
+          {session.scopes.map((s) => (
+            <span key={s} className="inline-flex rounded-full bg-muted text-muted-foreground px-2 py-0.5 text-xs">
+              {s}
+            </span>
           ))}
         </div>
         <p className="text-xs text-muted-foreground flex items-center gap-1">
@@ -54,9 +65,26 @@ function SessionCard({ session, onRevoke }: { session: ActiveSessionResponse; on
 }
 
 function DeliveryBadge({ status }: { status: string }) {
-  if (status === "delivered") return <Badge className="bg-green-100 text-green-800 text-xs"><CheckCircle2 className="h-3 w-3 mr-1" />Delivered</Badge>;
-  if (status === "failed") return <Badge variant="destructive" className="text-xs"><XCircle className="h-3 w-3 mr-1" />Failed</Badge>;
-  return <Badge variant="secondary" className="text-xs"><Clock className="h-3 w-3 mr-1" />Pending</Badge>;
+  if (status === "delivered" || status === "success")
+    return (
+      <Badge className="bg-green-100 text-green-800 text-xs">
+        <CheckCircle2 className="h-3 w-3 mr-1" />
+        Delivered
+      </Badge>
+    );
+  if (status === "failed")
+    return (
+      <Badge variant="destructive" className="text-xs">
+        <XCircle className="h-3 w-3 mr-1" />
+        Failed
+      </Badge>
+    );
+  return (
+    <Badge variant="secondary" className="text-xs">
+      <Clock className="h-3 w-3 mr-1" />
+      Pending
+    </Badge>
+  );
 }
 
 export default function SessionPage() {
@@ -65,42 +93,76 @@ export default function SessionPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
 
+  const [webhookClientId, setWebhookClientId] = useState("");
+  const [deliverySubId, setDeliverySubId] = useState("");
+
   const { data: sessions = [], isLoading: loadingSessions } = useQuery({
     queryKey: ["sessions-active"],
     queryFn: () => sessionApi.listActive(),
   });
 
-  const { data: subscriptions = [], isLoading: loadingSubs } = useQuery({
-    queryKey: ["webhook-subs"],
-    queryFn: () => webhooksApi.listSubscriptions(),
+  const { data: adminApps = [] } = useQuery({
+    queryKey: ["admin-apps-webhooks"],
+    queryFn: () => appsApi.list(0, 200),
     enabled: isAdmin,
   });
 
+  useEffect(() => {
+    if (!isAdmin || !adminApps.length || webhookClientId) return;
+    setWebhookClientId(adminApps[0].client_id);
+  }, [isAdmin, adminApps, webhookClientId]);
+
+  const { data: subscriptions = [], isLoading: loadingSubs } = useQuery({
+    queryKey: ["webhook-subs", webhookClientId],
+    queryFn: () => webhooksApi.listSubscriptions(webhookClientId),
+    enabled: isAdmin && !!webhookClientId,
+  });
+
+  useEffect(() => {
+    if (!subscriptions.length) {
+      setDeliverySubId("");
+      return;
+    }
+    setDeliverySubId((prev) => (prev && subscriptions.some((s) => s.id === prev) ? prev : subscriptions[0].id));
+  }, [subscriptions]);
+
   const { data: deliveries = [], isLoading: loadingDel } = useQuery({
-    queryKey: ["webhook-del"],
-    queryFn: () => webhooksApi.listDeliveries(),
-    enabled: isAdmin,
+    queryKey: ["webhook-del", deliverySubId],
+    queryFn: () => webhooksApi.listDeliveries(deliverySubId),
+    enabled: isAdmin && !!deliverySubId,
   });
 
   const revokeMutation = useMutation({
     mutationFn: (id: string) => sessionApi.revoke(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["sessions-active"] }); toast({ title: "Session revoked" }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sessions-active"] });
+      toast({ title: "Session revoked" });
+    },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const revokeAllMutation = useMutation({
     mutationFn: () => sessionApi.revokeAll(),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["sessions-active"] }); toast({ title: "All sessions revoked" }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sessions-active"] });
+      toast({ title: "All sessions revoked" });
+    },
   });
 
   const retryMutation = useMutation({
     mutationFn: (id: string) => webhooksApi.retry(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["webhook-del"] }); toast({ title: "Retry queued" }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["webhook-del", deliverySubId] });
+      toast({ title: "Retry queued" });
+    },
   });
 
   const deactivateSubMutation = useMutation({
     mutationFn: (id: string) => webhooksApi.deactivate(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["webhook-subs"] }); toast({ title: "Subscription deactivated" }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["webhook-subs", webhookClientId] });
+      toast({ title: "Subscription deactivated" });
+    },
   });
 
   return (
@@ -133,7 +195,9 @@ export default function SessionPage() {
           )}
           {loadingSessions ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {[1,2].map(i => <Card key={i} className="h-40 animate-pulse bg-muted" />)}
+              {[1, 2].map((i) => (
+                <Card key={i} className="h-40 animate-pulse bg-muted" />
+              ))}
             </div>
           ) : sessions.length === 0 ? (
             <div className="text-center py-20 text-muted-foreground">
@@ -142,7 +206,7 @@ export default function SessionPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {sessions.map(s => (
+              {sessions.map((s) => (
                 <SessionCard key={s.id} session={s} onRevoke={() => revokeMutation.mutate(s.id)} />
               ))}
             </div>
@@ -150,19 +214,48 @@ export default function SessionPage() {
         </TabsContent>
 
         {isAdmin && (
-          <TabsContent value="webhooks" className="mt-4">
+          <TabsContent value="webhooks" className="mt-4 space-y-4">
+            <div className="space-y-2 max-w-md">
+              <Label>OAuth client (app)</Label>
+              <Select
+                value={webhookClientId || undefined}
+                onValueChange={(v) => {
+                  setWebhookClientId(v);
+                  setDeliverySubId("");
+                }}
+                disabled={!adminApps.length}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={adminApps.length ? "Select app" : "No apps in registry"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {adminApps.map((a) => (
+                    <SelectItem key={a.client_id} value={a.client_id}>
+                      {a.name} ({a.client_id})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Subscriptions are listed per client_id, matching the API.
+              </p>
+            </div>
             {loadingSubs ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {[1,2].map(i => <Card key={i} className="h-36 animate-pulse bg-muted" />)}
+                {[1, 2].map((i) => (
+                  <Card key={i} className="h-36 animate-pulse bg-muted" />
+                ))}
               </div>
+            ) : !webhookClientId ? (
+              <div className="text-center py-12 text-muted-foreground text-sm">Select an app to load subscriptions.</div>
             ) : subscriptions.length === 0 ? (
               <div className="text-center py-20 text-muted-foreground">
                 <Webhook className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                <p>No webhook subscriptions found.</p>
+                <p>No webhook subscriptions for this client.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {subscriptions.map(sub => (
+                {subscriptions.map((sub) => (
                   <Card key={sub.id} className="hover:shadow-sm transition-shadow">
                     <CardHeader className="pb-2">
                       <div className="flex items-start justify-between gap-2">
@@ -198,19 +291,44 @@ export default function SessionPage() {
         )}
 
         {isAdmin && (
-          <TabsContent value="deliveries" className="mt-4">
+          <TabsContent value="deliveries" className="mt-4 space-y-4">
+            <div className="space-y-2 max-w-md">
+              <Label>Subscription</Label>
+              <Select
+                value={deliverySubId || undefined}
+                onValueChange={setDeliverySubId}
+                disabled={!subscriptions.length}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={subscriptions.length ? "Select subscription" : "No subscriptions"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {subscriptions.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.event_type} — {s.id.slice(0, 8)}…
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             {loadingDel ? (
               <div className="space-y-3">
-                {[1,2,3].map(i => <Card key={i} className="h-20 animate-pulse bg-muted" />)}
+                {[1, 2, 3].map((i) => (
+                  <Card key={i} className="h-20 animate-pulse bg-muted" />
+                ))}
+              </div>
+            ) : !deliverySubId ? (
+              <div className="text-center py-12 text-muted-foreground text-sm">
+                Choose a subscription to load deliveries.
               </div>
             ) : deliveries.length === 0 ? (
               <div className="text-center py-20 text-muted-foreground">
                 <CheckCircle2 className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                <p>No pending deliveries.</p>
+                <p>No deliveries for this subscription.</p>
               </div>
             ) : (
               <div className="space-y-2">
-                {deliveries.map(d => (
+                {deliveries.map((d) => (
                   <Card key={d.id} className="p-3">
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
@@ -221,9 +339,14 @@ export default function SessionPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-xs text-muted-foreground">{d.attempts}/{d.max_attempts}</span>
+                        <span className="text-xs text-muted-foreground">{d.attempts} attempts</span>
                         {d.status === "failed" && (
-                          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => retryMutation.mutate(d.id)}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs"
+                            onClick={() => retryMutation.mutate(d.id)}
+                          >
                             <RotateCcw className="h-3 w-3 mr-1" /> Retry
                           </Button>
                         )}

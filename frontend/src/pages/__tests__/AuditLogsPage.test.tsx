@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tantml:react-query';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
 import AuditLogsPage from '../AuditLogsPage';
 
@@ -34,6 +34,14 @@ describe('AuditLogsPage', () => {
     },
   });
 
+  beforeEach(() => {
+    queryClient.clear();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => mockAuditEntries,
+    });
+  });
+
   const renderPage = () => {
     return render(
       <QueryClientProvider client={queryClient}>
@@ -46,7 +54,7 @@ describe('AuditLogsPage', () => {
 
   it('should render page title', () => {
     renderPage();
-    expect(screen.getByText(/Audit Logs/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: /Audit Logs/i })).toBeInTheDocument();
   });
 
   it('should render filters section', () => {
@@ -55,35 +63,20 @@ describe('AuditLogsPage', () => {
   });
 
   it('should display audit entries', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => mockAuditEntries,
-    });
-
     renderPage();
     
     const action = await screen.findByText('user.created');
     expect(action).toBeInTheDocument();
   });
 
-  it('should show action badges', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => mockAuditEntries,
-    });
-
+  it('should show action labels from entries', async () => {
     renderPage();
-    
-    const createdBadge = await screen.findByText(/Created/i);
-    expect(createdBadge).toBeInTheDocument();
+
+    expect(await screen.findByText('user.created')).toBeInTheDocument();
+    expect(await screen.findByText('kyc.approved')).toBeInTheDocument();
   });
 
   it('should show resource type', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => mockAuditEntries,
-    });
-
     renderPage();
     
     const resourceTypes = await screen.findAllByText(/user|kyc/i);
@@ -92,8 +85,8 @@ describe('AuditLogsPage', () => {
 
   it('should have filter dropdowns', () => {
     renderPage();
-    
-    expect(screen.getByText(/Action/i)).toBeInTheDocument();
-    expect(screen.getByText(/Resource Type/i)).toBeInTheDocument();
+
+    expect(screen.getByText(/^Action$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Resource Type$/)).toBeInTheDocument();
   });
 });

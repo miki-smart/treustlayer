@@ -1,43 +1,37 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FileText, User, Shield, Database } from 'lucide-react';
+import { auditApi, type AuditEntryResponse } from '@/services/api';
 
-interface AuditEntry {
-  id: string;
-  actor_id: string | null;
-  action: string;
-  resource_type: string;
-  resource_id: string | null;
-  metadata: Record<string, any>;
-  changes: Record<string, any>;
-  timestamp: string;
-}
+const FILTER_ALL = '__all__';
 
 export default function AuditLogsPage() {
   const [filterAction, setFilterAction] = useState<string>('');
   const [filterResourceType, setFilterResourceType] = useState<string>('');
   const [searchUserId, setSearchUserId] = useState<string>('');
   
-  const { data: entries = [], isLoading } = useQuery<AuditEntry[]>({
+  const { data: rawEntries = [], isLoading } = useQuery<AuditEntryResponse[]>({
     queryKey: ['audit-logs', filterAction, filterResourceType],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (filterAction) params.append('action', filterAction);
-      if (filterResourceType) params.append('resource_type', filterResourceType);
-      
-      const response = await fetch(`/api/v1/audit/entries?${params.toString()}`, {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
-        },
-      });
-      if (!response.ok) throw new Error('Failed to fetch audit logs');
-      return response.json();
-    },
+    queryFn: () =>
+      auditApi.list({
+        action: filterAction || undefined,
+        resource_type: filterResourceType || undefined,
+      }),
   });
+
+  const entries = useMemo(() => {
+    const q = searchUserId.trim();
+    if (!q) return rawEntries;
+    return rawEntries.filter(
+      (e) =>
+        (e.actor_id && e.actor_id.includes(q)) ||
+        (e.resource_id && e.resource_id.includes(q)),
+    );
+  }, [rawEntries, searchUserId]);
   
   const getActionBadge = (action: string) => {
     if (action.includes('created')) return <Badge variant="default">Created</Badge>;
@@ -72,12 +66,15 @@ export default function AuditLogsPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="text-sm font-medium mb-2 block">Action</label>
-              <Select value={filterAction} onValueChange={setFilterAction}>
+              <Select
+                value={filterAction || FILTER_ALL}
+                onValueChange={(v) => setFilterAction(v === FILTER_ALL ? '' : v)}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="All actions" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All actions</SelectItem>
+                  <SelectItem value={FILTER_ALL}>All actions</SelectItem>
                   <SelectItem value="user.created">User Created</SelectItem>
                   <SelectItem value="user.updated">User Updated</SelectItem>
                   <SelectItem value="kyc.submitted">KYC Submitted</SelectItem>
@@ -91,12 +88,15 @@ export default function AuditLogsPage() {
             
             <div>
               <label className="text-sm font-medium mb-2 block">Resource Type</label>
-              <Select value={filterResourceType} onValueChange={setFilterResourceType}>
+              <Select
+                value={filterResourceType || FILTER_ALL}
+                onValueChange={(v) => setFilterResourceType(v === FILTER_ALL ? '' : v)}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="All resources" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All resources</SelectItem>
+                  <SelectItem value={FILTER_ALL}>All resources</SelectItem>
                   <SelectItem value="user">User</SelectItem>
                   <SelectItem value="kyc">KYC</SelectItem>
                   <SelectItem value="app">App</SelectItem>
@@ -158,7 +158,7 @@ export default function AuditLogsPage() {
                             <span className="font-medium">Resource:</span> {entry.resource_id.slice(0, 8)}...
                           </div>
                         )}
-                        {entry.metadata.ip_address && (
+                        {typeof entry.metadata.ip_address === 'string' && (
                           <div>
                             <span className="font-medium">IP:</span> {entry.metadata.ip_address}
                           </div>

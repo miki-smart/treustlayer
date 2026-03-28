@@ -27,9 +27,17 @@ Generate stub implementations for all modules.
 py scripts/generate_module_stubs.py
 ```
 
-## seed_data.py
-Seed the database with test data (to be implemented).
+## seed_demo_users.py
+Idempotent demo accounts for local login (passwords reset on each run for listed emails).
 
 ```bash
-py scripts/seed_data.py
+# From backend-merged (or `docker exec trustlayer_backend python scripts/seed_demo_users.py`)
+py scripts/seed_demo_users.py
 ```
+
+| Email | Password | Role |
+|-------|----------|------|
+| admin@fininfra.io | admin123 | admin |
+| abebe@example.com | user123 | user |
+| kyc@example.com | kyc123 | kyc_approver |
+| dev@example.com | dev123 | app_owner |

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
@@ -23,6 +23,14 @@ describe('AdminDashboardPage', () => {
     },
   });
 
+  beforeEach(() => {
+    queryClient.clear();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => mockStats,
+    });
+  });
+
   const renderPage = () => {
     return render(
       <QueryClientProvider client={queryClient}>
@@ -33,17 +41,12 @@ describe('AdminDashboardPage', () => {
     );
   };
 
-  it('should render page title', () => {
+  it('should render page title', async () => {
     renderPage();
-    expect(screen.getByText(/Admin Dashboard/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Admin Dashboard/i)).toBeInTheDocument();
   });
 
   it('should display statistics cards', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => mockStats,
-    });
-
     renderPage();
     
     const totalUsers = await screen.findByText('150');
@@ -51,11 +54,6 @@ describe('AdminDashboardPage', () => {
   });
 
   it('should show total users stat', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => mockStats,
-    });
-
     renderPage();
     
     expect(await screen.findByText(/Total Users/i)).toBeInTheDocument();
@@ -63,23 +61,14 @@ describe('AdminDashboardPage', () => {
   });
 
   it('should show KYC stats', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => mockStats,
-    });
-
     renderPage();
-    
+
     expect(await screen.findByText(/KYC Pending/i)).toBeInTheDocument();
-    expect(await screen.findByText('10')).toBeInTheDocument();
+    const tens = await screen.findAllByText('10');
+    expect(tens.length).toBeGreaterThanOrEqual(1);
   });
 
   it('should show active sessions', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => mockStats,
-    });
-
     renderPage();
     
     expect(await screen.findByText(/Active Sessions/i)).toBeInTheDocument();
@@ -87,11 +76,6 @@ describe('AdminDashboardPage', () => {
   });
 
   it('should show system health', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => mockStats,
-    });
-
     renderPage();
     
     expect(await screen.findByText(/System Health/i)).toBeInTheDocument();

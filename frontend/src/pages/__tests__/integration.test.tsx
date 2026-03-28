@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
+import { AuthProvider } from '@/contexts/AuthContext';
 import LoginPage from '../LoginPage';
 
 describe('Frontend-Backend Integration', () => {
@@ -21,7 +22,7 @@ describe('Frontend-Backend Integration', () => {
     return render(
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          {component}
+          <AuthProvider>{component}</AuthProvider>
         </BrowserRouter>
       </QueryClientProvider>
     );
@@ -29,18 +30,20 @@ describe('Frontend-Backend Integration', () => {
   
   it('should render login page', () => {
     renderWithProviders(<LoginPage />);
-    expect(screen.getByText(/sign in/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/sign in/i).length).toBeGreaterThan(0);
   });
-  
-  it('should have email and password fields', () => {
+
+  it('should have username and password fields', () => {
     renderWithProviders(<LoginPage />);
-    expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Enter username or email/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Enter your password/i)).toBeInTheDocument();
   });
-  
-  it('should have login button', () => {
+
+  it('should have login submit button', () => {
     renderWithProviders(<LoginPage />);
-    expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
+    const submitBtn = document.querySelector("form button[type='submit']");
+    expect(submitBtn).toBeTruthy();
+    expect(submitBtn?.textContent).toMatch(/sign in/i);
   });
 });
 

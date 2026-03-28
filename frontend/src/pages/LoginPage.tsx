@@ -5,12 +5,19 @@ import { authApi } from "@/services/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Card, CardContent } from "@/components/ui/card";
 import { Shield, ScanFace, KeyRound, Fingerprint, Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
 
+/** Seeded demo users — see backend `scripts/seed_demo_users.py` */
+const DEMO_ACCOUNTS = [
+  { label: "Admin", email: "admin@fininfra.io", password: "admin123" },
+  { label: "User", email: "abebe@example.com", password: "user123" },
+  { label: "KYC approver", email: "kyc@example.com", password: "kyc123" },
+  { label: "App owner", email: "dev@example.com", password: "dev123" },
+] as const;
+
 const LoginPage = () => {
-  const [username, setUsername] = useState("admin@fininfra.io");
-  const [password, setPassword] = useState("admin123");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState("");
@@ -27,6 +34,13 @@ const LoginPage = () => {
 
   const { login } = useAuth();
   const navigate = useNavigate();
+
+  const fillDemoAccount = (email: string, pw: string) => {
+    setUsername(email);
+    setPassword(pw);
+    setError("");
+    setTab("login");
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,12 +109,20 @@ const LoginPage = () => {
                 </div>
               ))}
             </div>
-            <div className="pt-4 border-t border-white/10">
-              <p className="text-white/50 text-xs leading-relaxed">
-                Demo credentials:<br />
-                <strong className="text-white/70">admin@fininfra.io</strong> / <strong className="text-white/70">admin123</strong><br />
-                <span className="text-white/40">User: abebe@example.com / user123</span>
-              </p>
+            <div className="pt-4 border-t border-white/10 space-y-2">
+              <p className="text-white/50 text-xs">Quick demo — tap to fill sign-in form</p>
+              <div className="flex flex-wrap gap-2">
+                {DEMO_ACCOUNTS.map((d) => (
+                  <button
+                    key={d.email}
+                    type="button"
+                    onClick={() => fillDemoAccount(d.email, d.password)}
+                    className="text-xs font-medium rounded-full px-3 py-1.5 bg-white/10 text-white/90 hover:bg-white/20 border border-white/15 transition-colors"
+                  >
+                    {d.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -155,6 +177,24 @@ const LoginPage = () => {
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">Quick demo — click to fill email and password</p>
+                <div className="flex flex-wrap gap-2">
+                  {DEMO_ACCOUNTS.map((d) => (
+                    <Button
+                      key={d.email}
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="h-8 text-xs font-medium"
+                      onClick={() => fillDemoAccount(d.email, d.password)}
+                    >
+                      {d.label}
+                    </Button>
+                  ))}
                 </div>
               </div>
 

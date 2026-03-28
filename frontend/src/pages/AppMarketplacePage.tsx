@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, CheckCircle2, XCircle, Shield, Globe, RefreshCcw, Copy, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { PageHeader } from "@/components/shared/PageHeader";
+import UserAppsHub from "./UserAppsHub";
 
 const scopeColors: Record<string, string> = {
   openid: "bg-blue-100 text-blue-800",
@@ -26,10 +27,11 @@ function ScopeTag({ scope }: { scope: string }) {
   return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>{scope}</span>;
 }
 
-function AppCard({ app, isAdmin, onApprove, onDeactivate }: {
+function AppCard({ app, onApprove, onDeactivate }: {
   app: AppResponse;
-  isAdmin: boolean;
+  /** Admin: approve pending apps */
   onApprove?: (id: string) => void;
+  /** Admin (any) or app owner (own apps only, enforced by API) */
   onDeactivate?: (id: string) => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -72,15 +74,15 @@ function AppCard({ app, isAdmin, onApprove, onDeactivate }: {
             )}
           </div>
         )}
-        {isAdmin && (
+        {(onApprove || onDeactivate) && (
           <div className="flex gap-2 pt-2 border-t">
-            {!app.is_approved && (
-              <Button size="sm" className="h-7 text-xs flex-1" onClick={() => onApprove?.(app.id)}>
+            {onApprove && !app.is_approved && (
+              <Button size="sm" className="h-7 text-xs flex-1" onClick={() => onApprove(app.id)}>
                 <CheckCircle2 className="h-3 w-3 mr-1" /> Approve
               </Button>
             )}
-            {app.is_active && (
-              <Button size="sm" variant="destructive" className="h-7 text-xs flex-1" onClick={() => onDeactivate?.(app.id)}>
+            {onDeactivate && app.is_active && (
+              <Button size="sm" variant="destructive" className="h-7 text-xs flex-1" onClick={() => onDeactivate(app.id)}>
                 <XCircle className="h-3 w-3 mr-1" /> Deactivate
               </Button>
             )}
@@ -92,8 +94,15 @@ function AppCard({ app, isAdmin, onApprove, onDeactivate }: {
 }
 
 export default function AppMarketplacePage() {
-  const { role, user } = useAuth();
+  const { role } = useAuth();
+  if (role === "user") {
+    return <UserAppsHub />;
+  }
+
   const isAdmin = role === "admin";
+  const isAppOwner = role === "app_owner";
+  const canRegisterApp = isAdmin || isAppOwner;
+  const defaultTab = isAdmin ? "all" : "mine";
   const qc = useQueryClient();
   const { toast } = useToast();
 
@@ -143,26 +152,41 @@ export default function AppMarketplacePage() {
 
   const approveMutation = useMutation({
     mutationFn: (id: string) => appsApi.approve(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["apps-all"] }); toast({ title: "App approved" }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["apps-all"] });
+      qc.invalidateQueries({ queryKey: ["apps-mine"] });
+      qc.invalidateQueries({ queryKey: ["apps-marketplace"] });
+      toast({ title: "App approved" });
+    },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const deactivateMutation = useMutation({
     mutationFn: (id: string) => appsApi.deactivate(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["apps-all"] }); toast({ title: "App deactivated" }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["apps-all"] });
+      qc.invalidateQueries({ queryKey: ["apps-mine"] });
+      qc.invalidateQueries({ queryKey: ["apps-marketplace"] });
+      toast({ title: "App deactivated" });
+    },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   return (
     <div className="space-y-6 p-6">
       <PageHeader
-        title="App Registry"
-        description="Browse, register, and manage OAuth2 client applications."
+        title="App directory"
+        description={
+          isAdmin
+            ? "All OAuth clients: pending approval and approved. You can approve or deactivate any application."
+            : "Register OAuth2 clients and manage only your own applications (My Apps). Browse approved public listings in Marketplace."
+        }
       >
+        {canRegisterApp && (
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button size="sm" className="gap-1.5">
-              <Plus className="h-4 w-4" /> Register App
+              <Plus className="h-4 w-4" /> Register app
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-md">
@@ -196,6 +220,7 @@ export default function AppMarketplacePage() {
             </div>
           </DialogContent>
         </Dialog>
+        )}
       </PageHeader>
 
       {/* One-time secret modal */}
@@ -223,7 +248,7 @@ export default function AppMarketplacePage() {
         </div>
       )}
 
-      <Tabs defaultValue={isAdmin ? "all" : "mine"}>
+      <Tabs defaultValue={defaultTab}>
         <TabsList>
           {isAdmin && <TabsTrigger value="all">All Apps ({allApps.length})</TabsTrigger>}
           <TabsTrigger value="mine">My Apps ({myApps.length})</TabsTrigger>
@@ -231,7 +256,10 @@ export default function AppMarketplacePage() {
         </TabsList>
 
         {isAdmin && (
-          <TabsContent value="all" className="mt-4">
+          <TabsContent value="all" className="mt-4 space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Includes every registration: <strong>pending</strong> (awaiting approval) and <strong>approved</strong> (eligible for marketplace when public).
+            </p>
             {loadingAll ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {[1,2,3].map(i => <Card key={i} className="h-48 animate-pulse bg-muted" />)}
@@ -244,7 +272,6 @@ export default function AppMarketplacePage() {
                   <AppCard
                     key={app.id}
                     app={app}
-                    isAdmin={isAdmin}
                     onApprove={id => approveMutation.mutate(id)}
                     onDeactivate={id => deactivateMutation.mutate(id)}
                   />
@@ -262,15 +289,22 @@ export default function AppMarketplacePage() {
           ) : myApps.length === 0 ? (
             <div className="text-center py-16 text-muted-foreground">
               <Shield className="h-12 w-12 mx-auto mb-3 opacity-30" />
-              <p>You haven't registered any apps yet.</p>
-              <Button variant="outline" size="sm" className="mt-3" onClick={() => setDialogOpen(true)}>
-                <Plus className="h-4 w-4 mr-1" /> Register your first app
-              </Button>
+              <p>You haven&apos;t registered any OAuth clients yet.</p>
+              {canRegisterApp && (
+                <Button variant="outline" size="sm" className="mt-3" onClick={() => setDialogOpen(true)}>
+                  <Plus className="h-4 w-4 mr-1" /> Register your first app
+                </Button>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {myApps.map(app => (
-                <AppCard key={app.id} app={app} isAdmin={isAdmin} />
+                <AppCard
+                  key={app.id}
+                  app={app}
+                  onApprove={isAdmin ? (id) => approveMutation.mutate(id) : undefined}
+                  onDeactivate={isAdmin || isAppOwner ? (id) => deactivateMutation.mutate(id) : undefined}
+                />
               ))}
             </div>
           )}
@@ -288,7 +322,7 @@ export default function AppMarketplacePage() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {marketplace.map(app => (
-                <AppCard key={app.id} app={app} isAdmin={false} />
+                <AppCard key={app.id} app={app} />
               ))}
             </div>
           )}

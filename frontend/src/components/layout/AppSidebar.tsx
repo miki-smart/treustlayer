@@ -1,6 +1,7 @@
 import {
   LayoutDashboard, FileCheck, Settings, Shield,
-  Store, ShieldCheck, MonitorSmartphone, ScanFace, Fingerprint,
+  Store, ScanFace, Fingerprint,
+  BarChart3, ClipboardList, ScrollText, Package, BadgeCheck,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
@@ -16,28 +17,43 @@ interface NavItem {
 }
 
 /**
- * Navigation for IDaaS + Federated SSO.
+ * Role-specific navigation.
  *
- * admin        — full access: all modules + admin tools + developer tools
- * kyc_approver — KYC queue + own personal pages
- * app_owner    — app registry + own personal pages
- * user         — own data only (no admin panels)
+ * - user: identity + Apps (marketplace + my connections; revoke access / sessions).
+ * - admin: administration + developers (see all apps pending/approved; manage globally).
+ * - kyc_approver: verification queue only.
+ * - app_owner: developers only (manage own OAuth clients via API; UI lists “mine” only).
  */
 function getNavSections(role: string): { label: string; items: NavItem[] }[] {
-  const core: NavItem[] = [
-    { title: "Dashboard",        url: "/dashboard",  icon: LayoutDashboard },
-    { title: "eKYC",             url: "/ekyc",       icon: FileCheck },
-    { title: "Biometric",        url: "/biometric",  icon: ScanFace },
-    { title: "Digital Identity", url: "/identity",   icon: Fingerprint },
+  const overview: NavItem[] = [
+    { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   ];
 
-  const personal: NavItem[] = [
-    { title: "Consent",  url: "/consent",  icon: ShieldCheck },
-    { title: "Sessions", url: "/sessions", icon: MonitorSmartphone },
+  const identityVerification: NavItem[] = [
+    { title: "eKYC", url: "/ekyc", icon: FileCheck },
+    { title: "Biometric", url: "/biometric", icon: ScanFace },
+    { title: "Digital Identity", url: "/identity", icon: Fingerprint },
   ];
 
-  const appDev: NavItem[] = [
-    { title: "App Registry", url: "/apps", icon: Store },
+  /** End users: marketplace + connections (revoke) in one place */
+  const userAppsHub: NavItem[] = [
+    { title: "Apps", url: "/apps", icon: Store },
+  ];
+
+  const adminOps: NavItem[] = [
+    { title: "Admin dashboard", url: "/admin", icon: BarChart3 },
+    { title: "KYC queue", url: "/kyc-queue", icon: ClipboardList },
+    { title: "App approvals", url: "/app-approvals", icon: BadgeCheck },
+    { title: "Audit logs", url: "/audit-logs", icon: ScrollText },
+  ];
+
+  const developer: NavItem[] = [
+    { title: "App directory", url: "/apps", icon: Store },
+    { title: "My OAuth clients", url: "/my-apps", icon: Package },
+  ];
+
+  const kycVerifier: NavItem[] = [
+    { title: "KYC queue", url: "/kyc-queue", icon: ClipboardList },
   ];
 
   const system: NavItem[] = [
@@ -47,36 +63,36 @@ function getNavSections(role: string): { label: string; items: NavItem[] }[] {
   switch (role) {
     case "admin":
       return [
-        { label: "Modules",        items: core },
-        { label: "Developer",      items: appDev },
-        { label: "Trust & Privacy",items: personal },
-        { label: "System",         items: system },
+        { label: "Overview", items: overview },
+        { label: "Administration", items: adminOps },
+        { label: "Developers", items: developer },
+        { label: "System", items: system },
       ];
     case "kyc_approver":
       return [
-        { label: "Modules",   items: core },
-        { label: "Privacy",   items: personal },
-        { label: "System",    items: system },
+        { label: "Overview", items: overview },
+        { label: "Verification", items: kycVerifier },
+        { label: "System", items: system },
       ];
     case "app_owner":
       return [
-        { label: "Modules",   items: core },
-        { label: "Developer", items: appDev },
-        { label: "Privacy",   items: personal },
-        { label: "System",    items: system },
+        { label: "Overview", items: overview },
+        { label: "Developers", items: developer },
+        { label: "System", items: system },
       ];
     default:
       return [
-        { label: "Modules", items: core },
-        { label: "Privacy", items: personal },
-        { label: "System",  items: system },
+        { label: "Overview", items: overview },
+        { label: "Your identity", items: identityVerification },
+        { label: "Apps & access", items: userAppsHub },
+        { label: "System", items: system },
       ];
   }
 }
 
 const portalLabel: Record<string, string> = {
   admin:        "Admin Console",
-  kyc_approver: "KYC Approver",
+  kyc_approver: "KYC verifier",
   app_owner:    "Developer Portal",
   user:         "User Portal",
 };

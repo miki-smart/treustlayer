@@ -165,12 +165,12 @@ export default function MyAppsPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <p className="text-sm text-muted-foreground">Category</p>
-                      <p className="font-medium">{app.category}</p>
+                      <p className="font-medium">{app.category ?? "—"}</p>
                     </div>
                     <div>
                       <p className="text-sm text-muted-foreground">Created</p>
                       <p className="font-medium">
-                        {new Date(app.created_at).toLocaleDateString()}
+                        {app.created_at ? new Date(app.created_at).toLocaleDateString() : "—"}
                       </p>
                     </div>
                   </div>

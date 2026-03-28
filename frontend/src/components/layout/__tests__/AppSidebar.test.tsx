@@ -1,103 +1,83 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { BrowserRouter } from 'react-router-dom';
-import { AuthProvider } from '@/contexts/AuthContext';
-import { AppSidebar } from '../AppSidebar';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { BrowserRouter } from "react-router-dom";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { AppSidebar } from "../AppSidebar";
+import { useAuth } from "@/contexts/AuthContext";
 
-describe('AppSidebar', () => {
-  const renderSidebar = (user: any) => {
-    vi.mock('@/contexts/AuthContext', () => ({
-      useAuth: () => ({
-        user,
-        isAuthenticated: !!user,
-        hasRole: (role: string) => user?.role === role,
-      }),
-      AuthProvider: ({ children }: any) => children,
-    }));
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: vi.fn(),
+}));
 
-    return render(
-      <BrowserRouter>
-        <AuthProvider>
-          <AppSidebar />
-        </AuthProvider>
-      </BrowserRouter>
-    );
-  };
+function renderSidebar(role: string) {
+  vi.mocked(useAuth).mockReturnValue({
+    user: { id: "u1", email: "x@y.com", role, username: "u", full_name: null, phone_number: null, is_active: true, is_email_verified: true, created_at: "" } as any,
+    role: role as any,
+    login: async () => false,
+    logout: () => {},
+    isAuthenticated: true,
+    isLoading: false,
+    refreshUser: async () => {},
+  });
 
-  it('should show user navigation items', () => {
-    const user = {
-      id: 'user-123',
-      email: 'user@example.com',
-      role: 'user',
-    };
+  return render(
+    <BrowserRouter>
+      <SidebarProvider>
+        <AppSidebar />
+      </SidebarProvider>
+    </BrowserRouter>,
+  );
+}
 
-    renderSidebar(user);
-    
+describe("AppSidebar", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("shows Apps hub for user role (no separate consent/sessions)", () => {
+    renderSidebar("user");
     expect(screen.getByText(/Dashboard/i)).toBeInTheDocument();
-    expect(screen.getByText(/Profile/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Apps$/i)).toBeInTheDocument();
+    expect(screen.getByText(/eKYC/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^Consent$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Connected apps/i)).not.toBeInTheDocument();
   });
 
-  it('should show admin navigation items', () => {
-    const admin = {
-      id: 'admin-123',
-      email: 'admin@example.com',
-      role: 'admin',
-    };
-
-    renderSidebar(admin);
-    
-    expect(screen.getByText(/Admin Dashboard/i)).toBeInTheDocument();
-    expect(screen.getByText(/KYC Queue/i)).toBeInTheDocument();
-    expect(screen.getByText(/App Approvals/i)).toBeInTheDocument();
-    expect(screen.getByText(/Audit Logs/i)).toBeInTheDocument();
+  it("shows admin ops and developers for admin (no consumer menus)", () => {
+    renderSidebar("admin");
+    expect(screen.getByText(/Admin dashboard/i)).toBeInTheDocument();
+    expect(screen.getByText(/KYC queue/i)).toBeInTheDocument();
+    expect(screen.getByText(/App approvals/i)).toBeInTheDocument();
+    expect(screen.getByText(/Audit logs/i)).toBeInTheDocument();
+    expect(screen.getByText(/App directory/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^eKYC$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Connected apps/i)).not.toBeInTheDocument();
   });
 
-  it('should show KYC approver navigation items', () => {
-    const kycApprover = {
-      id: 'kyc-123',
-      email: 'kyc@example.com',
-      role: 'kyc_approver',
-    };
-
-    renderSidebar(kycApprover);
-    
-    expect(screen.getByText(/KYC Queue/i)).toBeInTheDocument();
+  it("shows only verification for kyc_approver", () => {
+    renderSidebar("kyc_approver");
+    expect(screen.getByText(/KYC queue/i)).toBeInTheDocument();
+    expect(screen.queryByText(/eKYC/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Apps$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Admin dashboard/i)).not.toBeInTheDocument();
   });
 
-  it('should show app owner navigation items', () => {
-    const appOwner = {
-      id: 'owner-123',
-      email: 'owner@example.com',
-      role: 'app_owner',
-    };
-
-    renderSidebar(appOwner);
-    
-    expect(screen.getByText(/My Apps/i)).toBeInTheDocument();
+  it("shows only developers for app_owner", () => {
+    renderSidebar("app_owner");
+    expect(screen.getByText(/My OAuth clients/i)).toBeInTheDocument();
+    expect(screen.getByText(/App directory/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^Apps$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^eKYC$/i)).not.toBeInTheDocument();
   });
 
-  it('should not show admin items to regular user', () => {
-    const user = {
-      id: 'user-123',
-      email: 'user@example.com',
-      role: 'user',
-    };
-
-    renderSidebar(user);
-    
-    expect(screen.queryByText(/Admin Dashboard/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/App Approvals/i)).not.toBeInTheDocument();
+  it("hides admin items from regular user", () => {
+    renderSidebar("user");
+    expect(screen.queryByText(/Admin dashboard/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/App approvals/i)).not.toBeInTheDocument();
   });
 
-  it('should not show KYC queue to app owner', () => {
-    const appOwner = {
-      id: 'owner-123',
-      email: 'owner@example.com',
-      role: 'app_owner',
-    };
-
-    renderSidebar(appOwner);
-    
-    expect(screen.queryByText(/KYC Queue/i)).not.toBeInTheDocument();
+  it("does not show KYC queue to app_owner", () => {
+    renderSidebar("app_owner");
+    expect(screen.queryByText(/KYC queue/i)).not.toBeInTheDocument();
   });
 });

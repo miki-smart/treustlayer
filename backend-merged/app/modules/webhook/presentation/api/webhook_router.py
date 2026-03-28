@@ -9,6 +9,7 @@ from app.api.dependencies import DBSession, CurrentUserId
 from app.modules.webhook.infrastructure.persistence.webhook_repository_impl import SQLAlchemyWebhookRepository
 from app.modules.app_registry.infrastructure.persistence.app_repository_impl import SQLAlchemyAppRepository
 from app.modules.webhook.application.use_cases.subscribe_webhook import SubscribeWebhookUseCase
+from app.modules.webhook.domain.entities.webhook_delivery import DeliveryStatus
 
 router = APIRouter()
 

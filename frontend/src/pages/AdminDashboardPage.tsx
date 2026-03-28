@@ -1,31 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Users, CheckCircle, Clock, FileText, Activity, AlertTriangle } from 'lucide-react';
-
-interface DashboardStats {
-  total_users: number;
-  verified_users: number;
-  kyc_pending: number;
-  kyc_in_review: number;
-  kyc_approved: number;
-  kyc_rejected: number;
-  total_apps: number;
-  apps_pending: number;
-  active_sessions: number;
-}
+import { Users, CheckCircle, Clock, FileText, Activity } from 'lucide-react';
+import { dashboardApi, type DashboardStats } from '@/services/api';
 
 export default function AdminDashboardPage() {
   const { data: stats, isLoading } = useQuery<DashboardStats>({
     queryKey: ['dashboard-stats'],
-    queryFn: async () => {
-      const response = await fetch('/api/v1/dashboard/stats', {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
-        },
-      });
-      if (!response.ok) throw new Error('Failed to fetch stats');
-      return response.json();
-    },
+    queryFn: () => dashboardApi.getStats(),
     refetchInterval: 30000,
   });
 

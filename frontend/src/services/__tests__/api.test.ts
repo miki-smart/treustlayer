@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { authApi, kycApi, trustApi, appsApi, auditApi } from '../api';
+import { authApi, kycApi, trustApi, appsApi, auditApi, dashboardApi } from '../api';
 
 describe('API Service', () => {
   beforeEach(() => {
@@ -45,7 +45,7 @@ describe('API Service', () => {
 
       expect(result).toEqual(mockUser);
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/auth/register'),
+        expect.stringContaining('/identity/register'),
         expect.objectContaining({
           method: 'POST',
         })
@@ -71,17 +71,18 @@ describe('API Service', () => {
 
   describe('kycApi', () => {
     it('should submit KYC with multipart form data', async () => {
-      const mockKYC = { id: 'kyc-123', status: 'pending' };
+      const mockKYC = { id: 'kyc-123', status: 'pending', user_id: 'u1', tier: 'tier_0' };
 
       global.fetch = vi.fn().mockResolvedValue({
         ok: true,
         json: async () => mockKYC,
       });
 
-      const formData = new FormData();
-      formData.append('id_front', new Blob(['fake']), 'id.jpg');
+      const front = new File(['x'], 'id.jpg');
+      const bill = new File(['x'], 'bill.jpg');
+      const face = new File(['x'], 'face.jpg');
 
-      const result = await kycApi.submit(formData);
+      const result = await kycApi.submitKyc(front, null, bill, face);
 
       expect(result).toEqual(mockKYC);
       expect(global.fetch).toHaveBeenCalledWith(
@@ -93,14 +94,14 @@ describe('API Service', () => {
     });
 
     it('should get KYC status', async () => {
-      const mockStatus = { status: 'approved', tier: 'tier_2' };
+      const mockStatus = { id: 'k1', user_id: 'u1', status: 'approved', tier: 'tier_2' };
 
       global.fetch = vi.fn().mockResolvedValue({
         ok: true,
         json: async () => mockStatus,
       });
 
-      const result = await kycApi.status();
+      const result = await kycApi.getStatus();
 
       expect(result).toEqual(mockStatus);
       expect(global.fetch).toHaveBeenCalledWith(
@@ -162,7 +163,7 @@ describe('API Service', () => {
         json: async () => mockEvaluation,
       });
 
-      const result = await trustApi.evaluate('user-123');
+      const result = await trustApi.evaluate();
 
       expect(result).toEqual(mockEvaluation);
       expect(global.fetch).toHaveBeenCalledWith(
@@ -235,6 +236,25 @@ describe('API Service', () => {
         expect.objectContaining({
           method: 'POST',
         })
+      );
+    });
+  });
+
+  describe('dashboardApi', () => {
+    it('should fetch admin dashboard stats', async () => {
+      const mockStats = { total_users: 10, verified_users: 8, kyc_pending: 1, kyc_in_review: 0, kyc_approved: 5, kyc_rejected: 0, total_apps: 3, apps_pending: 1, active_sessions: 4 };
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => mockStats,
+      });
+
+      const result = await dashboardApi.getStats();
+
+      expect(result).toEqual(mockStats);
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/dashboard/stats'),
+        expect.any(Object)
       );
     });
   });

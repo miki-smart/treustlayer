@@ -1,15 +1,16 @@
 """
 Auth router � handles login, logout, and OIDC flows.
 """
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 
 from app.api.dependencies import DBSession, CurrentUserId
 from app.core.config import settings
 from app.core.exceptions import UnauthorizedError
-from app.core.security import create_access_token, hash_password, hash_secret, verify_password
+from app.core.security import create_access_token, generate_secure_token, hash_password, hash_secret, verify_password
 from app.modules.identity.infrastructure.persistence.user_repository_impl import SQLAlchemyUserRepository
 from app.modules.auth.infrastructure.persistence.auth_repository_impl import SQLAlchemyAuthRepository
 from app.modules.kyc.infrastructure.persistence.kyc_repository_impl import SQLAlchemyKYCRepository
@@ -21,6 +22,7 @@ from app.modules.auth.application.use_cases.exchange_token import ExchangeTokenU
 from app.modules.auth.application.use_cases.refresh_token import RefreshTokenUseCase
 from app.modules.auth.application.use_cases.introspect_token import IntrospectTokenUseCase
 from app.modules.auth.application.use_cases.get_userinfo import GetUserInfoUseCase
+from app.modules.auth.domain.entities.refresh_token import RefreshToken
 
 router = APIRouter()
 
@@ -51,7 +53,19 @@ async def login(payload: LoginRequest, session: DBSession):
     
     if not user_entity.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is deactivated")
-    
+
+    auth_repo = SQLAlchemyAuthRepository(session)
+    refresh_token_value = generate_secure_token(32)
+    refresh_token_hash = hash_secret(refresh_token_value)
+    refresh_entity = RefreshToken(
+        user_id=user_entity.id,
+        client_id=settings.DIRECT_LOGIN_REFRESH_CLIENT_ID,
+        token_hash=refresh_token_hash,
+        scopes=["openid", "profile", "email"],
+        expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+    )
+    await auth_repo.save_refresh_token(refresh_entity)
+
     access_token = create_access_token(
         subject=user_entity.id,
         extra_claims={
@@ -60,11 +74,12 @@ async def login(payload: LoginRequest, session: DBSession):
             "email": user_entity.email,
         }
     )
-    
+
     await session.commit()
-    
+
     return LoginResponse(
         access_token=access_token,
+        refresh_token=refresh_token_value,
         token_type="Bearer",
         expires_in=900,
         user_id=user_entity.id,

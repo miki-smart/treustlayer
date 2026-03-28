@@ -1,0 +1,43 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      LENDING_API_SECRET: ${LENDING_API_SECRET:-change-me-in-docker}
+      LENDING_API_CORS_ORIGINS: ${LENDING_API_CORS_ORIGINS:-}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\"",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      LENDING_API_URL: http://backend:8000
+      LENDING_API_SECRET: ${LENDING_API_SECRET:-change-me-in-docker}
+      LENDING_API_TIMEOUT_MS: ${LENDING_API_TIMEOUT_MS:-8000}
+      TRUSTIDLAYER_MOCK: ${TRUSTIDLAYER_MOCK:-true}
+      TRUSTIDLAYER_BASE_URL: ${TRUSTIDLAYER_BASE_URL:-}
+      TRUSTIDLAYER_CLIENT_ID: ${TRUSTIDLAYER_CLIENT_ID:-}
+      TRUSTIDLAYER_CLIENT_SECRET: ${TRUSTIDLAYER_CLIENT_SECRET:-}
+      TRUSTIDLAYER_REDIRECT_URI: ${TRUSTIDLAYER_REDIRECT_URI:-http://localhost:3000/auth/callback}
+      TRUSTIDLAYER_OAUTH_AUTHORIZE_URL: ${TRUSTIDLAYER_OAUTH_AUTHORIZE_URL:-}
+      TRUSTIDLAYER_OAUTH_AUTHORIZE_PATH: ${TRUSTIDLAYER_OAUTH_AUTHORIZE_PATH:-}
+      TRUSTIDLAYER_INTROSPECT_TTL_MS: ${TRUSTIDLAYER_INTROSPECT_TTL_MS:-60000}
+      TRUSTIDLAYER_TIMEOUT_MS: ${TRUSTIDLAYER_TIMEOUT_MS:-8000}
+    depends_on:
+      backend:
+        condition: service_healthy
