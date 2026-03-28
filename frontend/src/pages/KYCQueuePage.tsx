@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,8 +8,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { kycApi } from '@/services/api';
-import { CheckCircle, XCircle, AlertTriangle, Clock, Eye } from 'lucide-react';
+import { kycApi, identityApi } from '@/services/api';
+import { useToast } from '@/hooks/use-toast';
+import { CheckCircle, XCircle, AlertTriangle, Clock, Eye, Mail, Phone, ExternalLink } from 'lucide-react';
 
 interface KYCSubmission {
   id: string;
@@ -30,9 +32,11 @@ interface KYCSubmission {
   reviewer_id: string | null;
   submitted_at: string | null;
   reviewed_at: string | null;
+  extracted_data?: Record<string, unknown> | null;
 }
 
 export default function KYCQueuePage() {
+  const { toast } = useToast();
   const [selectedStatus, setSelectedStatus] = useState<string>('pending');
   const [selectedKYC, setSelectedKYC] = useState<KYCSubmission | null>(null);
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
@@ -41,6 +45,30 @@ export default function KYCQueuePage() {
   const [reviewNotes, setReviewNotes] = useState('');
   
   const queryClient = useQueryClient();
+
+  const { data: queueUser } = useQuery({
+    queryKey: ['queue-user', selectedKYC?.user_id],
+    queryFn: () => identityApi.getUser(selectedKYC!.user_id),
+    enabled: !!selectedKYC && reviewDialogOpen,
+  });
+
+  const verifyEmailMut = useMutation({
+    mutationFn: () => identityApi.verifyEmailManual(selectedKYC!.user_id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['queue-user', selectedKYC?.user_id] });
+      toast({ title: 'Email marked verified' });
+    },
+    onError: (e: Error) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+  });
+
+  const verifyPhoneMut = useMutation({
+    mutationFn: () => identityApi.verifyPhoneManual(selectedKYC!.user_id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['queue-user', selectedKYC?.user_id] });
+      toast({ title: 'Phone marked verified' });
+    },
+    onError: (e: Error) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+  });
   
   const { data: submissions = [], isLoading } = useQuery({
     queryKey: ['kyc-queue', selectedStatus],
@@ -156,7 +184,13 @@ export default function KYCQueuePage() {
                           {kyc.full_name || 'Unknown Name'}
                         </CardTitle>
                         <p className="text-sm text-muted-foreground mt-1">
-                          User ID: {kyc.user_id}
+                          User ID: {kyc.user_id}{' '}
+                          <Link
+                            to={`/kyc-queue/user/${kyc.user_id}`}
+                            className="text-primary inline-flex items-center gap-1 hover:underline"
+                          >
+                            View profile <ExternalLink className="h-3 w-3" />
+                          </Link>
                         </p>
                       </div>
                       <div className="flex gap-2">
@@ -228,6 +262,26 @@ export default function KYCQueuePage() {
           
           {selectedKYC && (
             <div className="space-y-6">
+              {queueUser && (
+                <div className="flex flex-wrap items-center gap-2 p-3 rounded-lg border bg-muted/30 text-sm">
+                  <span className="text-muted-foreground">{queueUser.email}</span>
+                  <Badge variant={queueUser.is_email_verified ? 'default' : 'secondary'}>email</Badge>
+                  <Badge variant={queueUser.phone_verified ? 'default' : 'secondary'}>phone</Badge>
+                  {!queueUser.is_email_verified && (
+                    <Button size="sm" variant="outline" disabled={verifyEmailMut.isPending} onClick={() => verifyEmailMut.mutate()}>
+                      <Mail className="h-3.5 w-3.5 mr-1" /> Verify email
+                    </Button>
+                  )}
+                  {!queueUser.phone_verified && (
+                    <Button size="sm" variant="outline" disabled={verifyPhoneMut.isPending} onClick={() => verifyPhoneMut.mutate()}>
+                      <Phone className="h-3.5 w-3.5 mr-1" /> Verify phone
+                    </Button>
+                  )}
+                  <Button variant="link" className="h-auto p-0" asChild>
+                    <Link to={`/kyc-queue/user/${selectedKYC.user_id}`}>Full applicant page</Link>
+                  </Button>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-sm font-medium">Full Name</p>
@@ -267,6 +321,22 @@ export default function KYCQueuePage() {
                 </div>
               </div>
               
+              {selectedKYC.extracted_data && Object.keys(selectedKYC.extracted_data).length > 0 && (
+                <div>
+                  <p className="text-sm font-medium mb-2">Extracted data (front / back / utility)</p>
+                  <div className="grid sm:grid-cols-2 gap-2 text-xs max-h-48 overflow-y-auto rounded border p-2 bg-muted/20">
+                    {Object.entries(selectedKYC.extracted_data).map(([k, v]) => (
+                      <div key={k}>
+                        <span className="text-muted-foreground capitalize">{k.replace(/_/g, ' ')}</span>
+                        <pre className="mt-0.5 whitespace-pre-wrap break-all font-mono text-[11px]">
+                          {typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v)}
+                        </pre>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <p className="text-sm font-medium mb-3">Submitted Documents</p>
                 <div className="grid grid-cols-2 gap-4">

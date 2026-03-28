@@ -11,7 +11,7 @@ export interface AppUser extends UserResponse {
 interface AuthContextType {
   user: AppUser | null;
   role: UserRole;
-  login: (username: string, password: string) => Promise<boolean>;
+  login: (username: string, password: string) => Promise<AppUser | null>;
   logout: () => void;
   isAuthenticated: boolean;
   isLoading: boolean;
@@ -43,17 +43,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     refreshUser().finally(() => setIsLoading(false));
   }, [refreshUser]);
 
-  const login = async (username: string, password: string): Promise<boolean> => {
+  const login = async (username: string, password: string): Promise<AppUser | null> => {
     try {
       const res = await authApi.login(username, password);
       tokenStore.set(res.access_token);
       if (res.refresh_token) tokenStore.setRefresh(res.refresh_token);
       const me = await authApi.me();
-      setUser(toAppUser(me));
-      return true;
+      const appUser = toAppUser(me);
+      setUser(appUser);
+      return appUser;
     } catch (err) {
       console.error("Login failed:", err);
-      return false;
+      return null;
     }
   };
 

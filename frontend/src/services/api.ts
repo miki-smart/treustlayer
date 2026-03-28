@@ -56,8 +56,10 @@ export interface UserResponse {
   role: string;
   full_name: string | null;
   phone_number: string | null;
+  avatar?: string | null;
   is_active: boolean;
   is_email_verified: boolean;
+  phone_verified?: boolean;
   created_at: string;
 }
 
@@ -126,8 +128,24 @@ export interface OcrExtractedData {
 export interface OcrResponse {
   success: boolean;
   extracted: OcrExtractedData;
+  /** Raw OCR key-value blobs for side-by-side forms */
+  id_front: Record<string, unknown>;
+  id_back: Record<string, unknown>;
   warnings: string[];
   model_used: string;
+}
+
+export interface KycSubmitOverrides {
+  id_front?: Record<string, unknown>;
+  id_back?: Record<string, unknown>;
+  utility?: Record<string, unknown>;
+  document_type?: string;
+}
+
+export interface KycApproverUserDetail {
+  user: UserResponse;
+  kyc: KYCResponse | null;
+  trust: TrustProfile;
 }
 
 export interface AppResponse {
@@ -211,6 +229,23 @@ export interface TrustProfile {
   last_calculated_at: string;
 }
 
+/** Matches backend BiometricRecordResponse */
+export interface BiometricRecord {
+  id: string;
+  user_id: string;
+  type: string;
+  status: string;
+  liveness_score: number;
+  spoof_probability: number;
+  quality_score: number;
+  risk_level: string;
+  device_info?: Record<string, unknown> | null;
+  ip_address?: string | null;
+  biometric_data_url?: string | null;
+  verified_at?: string | null;
+  created_at: string;
+}
+
 export interface DashboardStats {
   total_users: number;
   verified_users: number;
@@ -278,6 +313,11 @@ export const identityApi = {
     api.patch<UserResponse>(`/identity/users/${user_id}/role`, { role }),
   deactivateUser: (user_id: string) =>
     api.post<UserResponse>(`/identity/users/${user_id}/deactivate`),
+  /** KYC approver / admin manual verification */
+  verifyEmailManual: (user_id: string) =>
+    api.post<UserResponse>(`/identity/users/${user_id}/verify-email`, {}),
+  verifyPhoneManual: (user_id: string) =>
+    api.post<UserResponse>(`/identity/users/${user_id}/verify-phone`, {}),
 };
 
 // ── KYC ───────────────────────────────────────────────────────────────────────
@@ -300,12 +340,21 @@ export const kycApi = {
     return data as OcrResponse;
   },
 
-  submitKyc: async (idFront: File, idBack: File | null, utilityBill: File, faceImage: File): Promise<KYCResponse> => {
+  submitKyc: async (
+    idFront: File,
+    idBack: File | null,
+    utilityBill: File,
+    faceImage: File,
+    overrides?: KycSubmitOverrides,
+  ): Promise<KYCResponse> => {
     const formData = new FormData();
     formData.append("id_front", idFront);
     if (idBack) formData.append("id_back", idBack);
     formData.append("utility_bill", utilityBill);
     formData.append("face_image", faceImage);
+    if (overrides && Object.keys(overrides).length > 0) {
+      formData.append("kyc_overrides", JSON.stringify(overrides));
+    }
     const token = tokenStore.get();
     const res = await fetch(`${BASE}/kyc/submit`, {
       method: "POST",
@@ -318,6 +367,10 @@ export const kycApi = {
   },
 
   getStatus: () => api.get<KYCResponse>(`/kyc/status`),
+
+  /** Approver: user + KYC row + trust */
+  getApproverUserDetail: (userId: string) =>
+    api.get<KycApproverUserDetail>(`/kyc/approver/users/${userId}/detail`),
 
   listQueue: (status = "pending", skip = 0, limit = 50) =>
     api.get<KYCResponse[]>(`/kyc/queue?status=${status}&skip=${skip}&limit=${limit}`),
@@ -391,6 +444,52 @@ export const trustApi = {
   getProfile: () => api.get<TrustProfile>("/trust/profile"),
   getUserProfile: (userId: string) => api.get<TrustProfile>(`/trust/profile/${userId}`),
   evaluate: () => api.post<TrustProfile>("/trust/evaluate"),
+};
+
+// ── Biometrics ───────────────────────────────────────────────────────────────
+
+async function postMultipart<T>(path: string, formData: FormData): Promise<T> {
+  const token = tokenStore.get();
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = data?.detail || data?.message || `HTTP ${res.status}`;
+    throw new Error(Array.isArray(msg) ? msg.map((e: { msg: string }) => e.msg).join("; ") : msg);
+  }
+  return data as T;
+}
+
+export const biometricApi = {
+  verifyFace: (faceBlob: Blob, idPhotoBlob?: Blob) => {
+    const formData = new FormData();
+    formData.append("face_image", faceBlob, "face.jpg");
+    if (idPhotoBlob) formData.append("id_photo", idPhotoBlob, "id.jpg");
+    return postMultipart<BiometricRecord>("/biometric/face/verify", formData);
+  },
+
+  verifyVoice: (audioBlob: Blob, filename = "voice.wav") => {
+    const formData = new FormData();
+    formData.append("audio", audioBlob, filename);
+    return postMultipart<BiometricRecord>("/biometric/voice/verify", formData);
+  },
+
+  listRecords: () => api.get<BiometricRecord[]>("/biometric/records"),
+
+  deleteRecord: (recordId: string) => api.delete<void>(`/biometric/records/${recordId}`),
+
+  /** Admin */
+  listSubmissions: (skip = 0, limit = 50) =>
+    api.get<BiometricRecord[]>(`/biometric/submissions?skip=${skip}&limit=${limit}`),
+
+  approve: (recordId: string) =>
+    api.post<BiometricRecord>(`/biometric/${recordId}/approve`, {}),
+
+  reject: (recordId: string, reason: string) =>
+    api.post<BiometricRecord>(`/biometric/${recordId}/reject`, { reason }),
 };
 
 // ── Dashboard (admin) ───────────────────────────────────────────────────────────

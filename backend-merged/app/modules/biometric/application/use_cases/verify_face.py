@@ -4,12 +4,14 @@ VerifyFaceUseCase — verify user's face biometric.
 import logging
 from typing import Optional
 
-from app.core.exceptions import DomainError
 from app.infrastructure.ai.face_verification_service import face_verification_service
 from app.modules.biometric.domain.entities.biometric_record import BiometricRecord, BiometricType, BiometricStatus
 from app.modules.biometric.domain.repositories.biometric_repository import BiometricRepository
 
 logger = logging.getLogger(__name__)
+
+# Minimum face similarity vs ID photo when both are provided (MVP heuristic).
+ID_FACE_MATCH_THRESHOLD = 0.55
 
 
 class VerifyFaceUseCase:
@@ -53,8 +55,29 @@ class VerifyFaceUseCase:
         )
         
         record.risk_level = record.calculate_risk_level()
-        
-        if liveness_score >= 0.7 and spoof_probability <= 0.3 and quality_score >= 0.6:
+
+        base_ok = (
+            liveness_score >= 0.7
+            and spoof_probability <= 0.3
+            and quality_score >= 0.6
+        )
+        if base_ok and id_photo_bytes:
+            similarity = await face_verification_service.match_faces(
+                face_image_bytes, id_photo_bytes
+            )
+            logger.info(
+                "Face vs ID similarity for user %s: %.3f (threshold %.2f)",
+                user_id,
+                similarity,
+                ID_FACE_MATCH_THRESHOLD,
+            )
+            if similarity < ID_FACE_MATCH_THRESHOLD:
+                base_ok = False
+                logger.warning(
+                    "Face vs ID match below threshold for user %s", user_id
+                )
+
+        if base_ok:
             record.verify()
             logger.info(f"Face verification PASSED for user {user_id}")
         else:

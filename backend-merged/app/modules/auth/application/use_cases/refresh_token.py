@@ -6,7 +6,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
 from app.core.exceptions import UnauthorizedError
-from app.core.security import create_access_token, hash_secret
+from app.core.security import create_access_token, hash_secret, verify_secret
+from app.modules.app_registry.domain.repositories.app_repository import AppRepository
+from app.modules.auth.application.trust_risk import risk_level_and_flag
 from app.modules.auth.domain.repositories.auth_repository import AuthRepository
 from app.modules.biometric.domain.entities.biometric_record import (
     BiometricStatus,
@@ -38,6 +40,7 @@ class RefreshTokenUseCase:
         trust_repo: TrustRepository,
         biometric_repo: BiometricRepository,
         identity_repo: DigitalIdentityRepository,
+        app_repo: AppRepository,
     ):
         self.auth_repo = auth_repo
         self.user_repo = user_repo
@@ -45,6 +48,7 @@ class RefreshTokenUseCase:
         self.trust_repo = trust_repo
         self.biometric_repo = biometric_repo
         self.identity_repo = identity_repo
+        self.app_repo = app_repo
     
     async def execute(
         self, refresh_token_value: str, client_id: str, client_secret: str
@@ -81,6 +85,11 @@ class RefreshTokenUseCase:
             logger.warning(f"Client ID mismatch for refresh token: {refresh_token.id}")
             raise UnauthorizedError("Client ID mismatch")
         
+        registered = await self.app_repo.get_by_client_id(client_id)
+        if not registered or not verify_secret(client_secret, registered.client_secret_hash):
+            logger.warning("Invalid client_secret on refresh for client %s", client_id)
+            raise UnauthorizedError("Invalid client credentials")
+        
         # 4. Update last used timestamp
         refresh_token.update_last_used()
         await self.auth_repo.save_refresh_token(refresh_token)
@@ -104,6 +113,9 @@ class RefreshTokenUseCase:
         
         digital_identity = await self.identity_repo.get_by_user_id(user.id)
         
+        ts = float(trust.trust_score) if trust else 0.0
+        risk_level, risk_flag = risk_level_and_flag(ts)
+        
         # 6. Generate new access token with updated claims
         extra_claims = {
             "username": user.username,
@@ -112,8 +124,9 @@ class RefreshTokenUseCase:
             "email_verified": user.is_email_verified,
             "phone_verified": user.phone_verified,
             "kyc_tier": kyc.tier.value if kyc else "tier_0",
-            "trust_score": float(trust.trust_score) if trust else 0.0,
-            "risk_level": trust.risk_level if trust else "high",
+            "trust_score": ts,
+            "risk_level": risk_level,
+            "risk_flag": risk_flag,
             "biometric_verified": face_verified or voice_verified,
             "face_verified": face_verified,
             "voice_verified": voice_verified,

@@ -20,7 +20,7 @@ describe("ProtectedRoute", () => {
     vi.mocked(useAuth).mockReturnValue({
       user: null,
       role: "user",
-      login: async () => false,
+      login: async () => null,
       logout: () => {},
       isAuthenticated: false,
       isLoading: true,
@@ -44,7 +44,7 @@ describe("ProtectedRoute", () => {
     vi.mocked(useAuth).mockReturnValue({
       user: null,
       role: "user",
-      login: async () => false,
+      login: async () => null,
       logout: () => {},
       isAuthenticated: false,
       isLoading: false,
@@ -69,7 +69,7 @@ describe("ProtectedRoute", () => {
     vi.mocked(useAuth).mockReturnValue({
       user: { id: "1", email: "a@b.com", role: "user", username: "u", full_name: null, phone_number: null, is_active: true, is_email_verified: true, created_at: "" } as any,
       role: "user",
-      login: async () => false,
+      login: async () => null,
       logout: () => {},
       isAuthenticated: true,
       isLoading: false,
@@ -93,7 +93,7 @@ describe("ProtectedRoute", () => {
     vi.mocked(useAuth).mockReturnValue({
       user: { id: "1", email: "a@b.com", role: "admin", username: "a", full_name: null, phone_number: null, is_active: true, is_email_verified: true, created_at: "" } as any,
       role: "admin",
-      login: async () => false,
+      login: async () => null,
       logout: () => {},
       isAuthenticated: true,
       isLoading: false,
@@ -117,7 +117,7 @@ describe("ProtectedRoute", () => {
     vi.mocked(useAuth).mockReturnValue({
       user: { id: "1", email: "u@b.com", role: "user", username: "u", full_name: null, phone_number: null, is_active: true, is_email_verified: true, created_at: "" } as any,
       role: "user",
-      login: async () => false,
+      login: async () => null,
       logout: () => {},
       isAuthenticated: true,
       isLoading: false,
@@ -129,13 +129,13 @@ describe("ProtectedRoute", () => {
         <SidebarProvider>
           <Routes>
             <Route path="/app" element={<ProtectedRoute allow={["admin"]}><TestComponent /></ProtectedRoute>} />
-            <Route path="/dashboard" element={<div>Dashboard Page</div>} />
+            <Route path="/apps" element={<div>Apps Home</div>} />
           </Routes>
         </SidebarProvider>
       </MemoryRouter>,
     );
 
     expect(screen.queryByText("Protected Content")).not.toBeInTheDocument();
-    expect(screen.getByText("Dashboard Page")).toBeInTheDocument();
+    expect(screen.getByText("Apps Home")).toBeInTheDocument();
   });
 });

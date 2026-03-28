@@ -15,6 +15,9 @@ credentials.json
 *.pfx
 SECRETS_BACKUP.md
 
+# Local OAuth client plaintext (use env + seed script instead)
+backend-merged/appkeys
+
 # ── Python ─────────────────────────────
 __pycache__/
 *.py[cod]

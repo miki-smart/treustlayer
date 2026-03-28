@@ -1,19 +1,28 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth, type UserRole } from "@/contexts/AuthContext";
+import { getHomePathForRole } from "@/lib/homePath";
 import { authApi } from "@/services/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Shield, ScanFace, KeyRound, Fingerprint, Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
 
+type DemoAccount = { label: string; email: string; password: string; hint?: string };
+
 /** Seeded demo users — see backend `scripts/seed_demo_users.py` */
-const DEMO_ACCOUNTS = [
+const DEMO_ACCOUNTS: DemoAccount[] = [
   { label: "Admin", email: "admin@fininfra.io", password: "admin123" },
-  { label: "User", email: "abebe@example.com", password: "user123" },
+  { label: "User (with KYC)", email: "abebe@example.com", password: "user123" },
+  {
+    label: "Fresh Demo User",
+    email: "fresh@example.com",
+    password: "fresh123",
+    hint: "No KYC submitted — clean demo account",
+  },
   { label: "KYC approver", email: "kyc@example.com", password: "kyc123" },
   { label: "App owner", email: "dev@example.com", password: "dev123" },
-] as const;
+];
 
 const LoginPage = () => {
   const [username, setUsername] = useState("");
@@ -46,10 +55,10 @@ const LoginPage = () => {
     e.preventDefault();
     setError("");
     setLoading(true);
-    const ok = await login(username, password);
+    const user = await login(username, password);
     setLoading(false);
-    if (ok) {
-      navigate("/dashboard");
+    if (user) {
+      navigate(getHomePathForRole(user.role as UserRole));
     } else {
       setError("Invalid username or password. Please try again.");
     }
@@ -67,8 +76,8 @@ const LoginPage = () => {
         full_name: regName || undefined,
       });
       // Auto-login after registration
-      const ok = await login(regUsername, regPassword);
-      if (ok) navigate("/dashboard");
+      const user = await login(regUsername, regPassword);
+      if (user) navigate(getHomePathForRole(user.role as UserRole));
     } catch (err: unknown) {
       setRegError(err instanceof Error ? err.message : "Registration failed");
     } finally {
@@ -116,6 +125,7 @@ const LoginPage = () => {
                   <button
                     key={d.email}
                     type="button"
+                    title={d.hint}
                     onClick={() => fillDemoAccount(d.email, d.password)}
                     className="text-xs font-medium rounded-full px-3 py-1.5 bg-white/10 text-white/90 hover:bg-white/20 border border-white/15 transition-colors"
                   >
@@ -190,6 +200,7 @@ const LoginPage = () => {
                       variant="secondary"
                       size="sm"
                       className="h-8 text-xs font-medium"
+                      title={d.hint}
                       onClick={() => fillDemoAccount(d.email, d.password)}
                     >
                       {d.label}

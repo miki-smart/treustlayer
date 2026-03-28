@@ -17,6 +17,9 @@ from app.modules.kyc.infrastructure.persistence.kyc_repository_impl import SQLAl
 from app.modules.trust.infrastructure.persistence.trust_repository_impl import SQLAlchemyTrustRepository
 from app.modules.biometric.infrastructure.persistence.biometric_repository_impl import SQLAlchemyBiometricRepository
 from app.modules.digital_identity.infrastructure.persistence.identity_repository_impl import SQLAlchemyDigitalIdentityRepository
+from app.modules.app_registry.infrastructure.persistence.app_repository_impl import (
+    SQLAlchemyAppRepository,
+)
 from app.modules.auth.application.use_cases.authorize import AuthorizeUseCase
 from app.modules.auth.application.use_cases.exchange_token import ExchangeTokenUseCase
 from app.modules.auth.application.use_cases.refresh_token import RefreshTokenUseCase
@@ -139,8 +142,9 @@ async def authorize(payload: AuthorizeRequest, session: DBSession):
     """
     auth_repo = SQLAlchemyAuthRepository(session)
     user_repo = SQLAlchemyUserRepository(session)
+    app_repo = SQLAlchemyAppRepository(session)
     
-    use_case = AuthorizeUseCase(auth_repo, user_repo)
+    use_case = AuthorizeUseCase(auth_repo, user_repo, app_repo)
     
     code = await use_case.execute(
         email=payload.email,
@@ -198,6 +202,7 @@ async def token(payload: TokenRequest, request: Request, session: DBSession):
     trust_repo = SQLAlchemyTrustRepository(session)
     biometric_repo = SQLAlchemyBiometricRepository(session)
     identity_repo = SQLAlchemyDigitalIdentityRepository(session)
+    app_repo = SQLAlchemyAppRepository(session)
     
     if payload.grant_type == "authorization_code":
         if not payload.code or not payload.redirect_uri:
@@ -206,7 +211,7 @@ async def token(payload: TokenRequest, request: Request, session: DBSession):
             )
         
         use_case = ExchangeTokenUseCase(
-            auth_repo, user_repo, kyc_repo, trust_repo, biometric_repo, identity_repo
+            auth_repo, user_repo, kyc_repo, trust_repo, biometric_repo, identity_repo, app_repo
         )
         
         device_info = request.headers.get("user-agent")
@@ -231,7 +236,7 @@ async def token(payload: TokenRequest, request: Request, session: DBSession):
             raise HTTPException(status_code=400, detail="refresh_token required for refresh_token grant")
         
         use_case = RefreshTokenUseCase(
-            auth_repo, user_repo, kyc_repo, trust_repo, biometric_repo, identity_repo
+            auth_repo, user_repo, kyc_repo, trust_repo, biometric_repo, identity_repo, app_repo
         )
         
         tokens = await use_case.execute(
@@ -329,6 +334,7 @@ async def discovery():
             "kyc_tier",
             "trust_score",
             "risk_level",
+            "risk_flag",
             "biometric_verified",
             "face_verified",
             "voice_verified",

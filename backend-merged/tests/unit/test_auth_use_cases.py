@@ -5,6 +5,8 @@ import pytest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
+from app.core.security import hash_secret
+from app.modules.app_registry.domain.entities.app import App
 from app.modules.auth.application.use_cases.authorize import AuthorizeUseCase
 from app.modules.auth.application.use_cases.exchange_token import ExchangeTokenUseCase
 from app.modules.auth.application.use_cases.refresh_token import RefreshTokenUseCase
@@ -18,6 +20,16 @@ from app.core.exceptions import UnauthorizedError, BadRequestError
 
 class TestAuthorizeUseCase:
     """Test AuthorizeUseCase."""
+
+    @pytest.fixture(autouse=True)
+    def patch_verify_password(self, monkeypatch):
+        """Stable password check across bcrypt versions in CI."""
+        import app.modules.auth.application.use_cases.authorize as auth_mod
+
+        def _verify(plain: str, hashed: str) -> bool:
+            return plain == "password123"
+
+        monkeypatch.setattr(auth_mod, "verify_password", _verify)
     
     @pytest.fixture
     def mock_repos(self):
@@ -25,7 +37,26 @@ class TestAuthorizeUseCase:
         return {
             "auth_repo": AsyncMock(),
             "user_repo": AsyncMock(),
+            "app_repo": AsyncMock(),
         }
+    
+    @pytest.fixture
+    def registered_app(self):
+        return App(
+            name="Test",
+            owner_id="owner-1",
+            client_id="test-client",
+            client_secret_hash=hash_secret("unused"),
+            api_key_hash=hash_secret("ak"),
+            allowed_scopes=["openid", "profile", "email", "phone", "kyc_status", "trust_score"],
+            redirect_uris=["http://localhost:3000/callback"],
+            is_active=True,
+            is_approved=True,
+        )
+
+    @pytest.fixture(autouse=True)
+    def wire_app_registry(self, mock_repos, registered_app):
+        mock_repos["app_repo"].get_by_client_id.return_value = registered_app
     
     @pytest.fixture
     def use_case(self, mock_repos):
@@ -33,6 +64,7 @@ class TestAuthorizeUseCase:
         return AuthorizeUseCase(
             auth_repo=mock_repos["auth_repo"],
             user_repo=mock_repos["user_repo"],
+            app_repo=mock_repos["app_repo"],
         )
     
     @pytest.fixture
@@ -129,6 +161,7 @@ class TestExchangeTokenUseCase:
             "trust_repo": AsyncMock(),
             "biometric_repo": AsyncMock(),
             "identity_repo": AsyncMock(),
+            "app_repo": AsyncMock(),
         }
     
     @pytest.fixture
@@ -141,6 +174,7 @@ class TestExchangeTokenUseCase:
             trust_repo=mock_repos["trust_repo"],
             biometric_repo=mock_repos["biometric_repo"],
             identity_repo=mock_repos["identity_repo"],
+            app_repo=mock_repos["app_repo"],
         )
     
     @pytest.fixture
@@ -175,6 +209,17 @@ class TestExchangeTokenUseCase:
     ):
         """Test successful token exchange."""
         mock_repos["auth_repo"].get_authorization_code.return_value = test_auth_code
+        mock_repos["app_repo"].get_by_client_id.return_value = App(
+            name="Test",
+            owner_id="o1",
+            client_id="test-client",
+            client_secret_hash=hash_secret("secret"),
+            api_key_hash=hash_secret("ak"),
+            allowed_scopes=["openid"],
+            redirect_uris=["http://localhost:3000/callback"],
+            is_active=True,
+            is_approved=True,
+        )
         mock_repos["user_repo"].get_by_id.return_value = test_user
         mock_repos["kyc_repo"].get_by_user_id.return_value = None
         mock_repos["trust_repo"].get_by_user_id.return_value = None
@@ -257,6 +302,7 @@ class TestRefreshTokenUseCase:
             "trust_repo": AsyncMock(),
             "biometric_repo": AsyncMock(),
             "identity_repo": AsyncMock(),
+            "app_repo": AsyncMock(),
         }
     
     @pytest.fixture
@@ -269,6 +315,7 @@ class TestRefreshTokenUseCase:
             trust_repo=mock_repos["trust_repo"],
             biometric_repo=mock_repos["biometric_repo"],
             identity_repo=mock_repos["identity_repo"],
+            app_repo=mock_repos["app_repo"],
         )
     
     @pytest.fixture
@@ -303,6 +350,17 @@ class TestRefreshTokenUseCase:
     ):
         """Test successful token refresh."""
         mock_repos["auth_repo"].get_refresh_token.return_value = test_refresh_token
+        mock_repos["app_repo"].get_by_client_id.return_value = App(
+            name="Test",
+            owner_id="o1",
+            client_id="test-client",
+            client_secret_hash=hash_secret("secret"),
+            api_key_hash=hash_secret("ak"),
+            allowed_scopes=["openid"],
+            redirect_uris=["http://localhost:3000/callback"],
+            is_active=True,
+            is_approved=True,
+        )
         mock_repos["user_repo"].get_by_id.return_value = test_user
         mock_repos["kyc_repo"].get_by_user_id.return_value = None
         mock_repos["trust_repo"].get_by_user_id.return_value = None

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Users, CheckCircle, Clock, FileText, Activity } from 'lucide-react';
+import { Users, CheckCircle, Clock, FileText, Activity, Sparkles } from 'lucide-react';
 import { dashboardApi, type DashboardStats } from '@/services/api';
 
 export default function AdminDashboardPage() {
@@ -28,7 +28,7 @@ export default function AdminDashboardPage() {
     );
   }
 
-  const statCards = [
+  const secondaryCards = [
     {
       title: 'Total Users',
       value: stats.total_users,
@@ -46,22 +46,6 @@ export default function AdminDashboardPage() {
       bgColor: 'bg-yellow-50 dark:bg-yellow-950',
     },
     {
-      title: 'KYC Approved',
-      value: stats.kyc_approved,
-      icon: CheckCircle,
-      description: `${stats.kyc_rejected} rejected`,
-      color: 'text-green-600',
-      bgColor: 'bg-green-50 dark:bg-green-950',
-    },
-    {
-      title: 'Total Apps',
-      value: stats.total_apps,
-      icon: FileText,
-      description: `${stats.apps_pending} pending approval`,
-      color: 'text-purple-600',
-      bgColor: 'bg-purple-50 dark:bg-purple-950',
-    },
-    {
       title: 'Active Sessions',
       value: stats.active_sessions,
       icon: Activity,
@@ -72,38 +56,88 @@ export default function AdminDashboardPage() {
   ];
 
   return (
-    <div className="container mx-auto py-8 space-y-6">
+    <div className="container mx-auto py-8 space-y-8">
       <div>
         <h1 className="text-3xl font-bold">Admin Dashboard</h1>
         <p className="text-muted-foreground mt-2">
-          System overview and analytics
+          Key metrics for apps and identity verification
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {statCards.map((stat) => {
-          const Icon = stat.icon;
-          return (
-            <Card key={stat.title}>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">{stat.title}</CardTitle>
-                <div className={`p-2 rounded-lg ${stat.bgColor}`}>
-                  <Icon className={`h-4 w-4 ${stat.color}`} />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stat.value}</div>
-                <p className="text-xs text-muted-foreground mt-1">{stat.description}</p>
-              </CardContent>
-            </Card>
-          );
-        })}
+      {/* Primary: registered apps + KYC approved + roadmap */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card className="md:col-span-1 border-primary/20 shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-base font-semibold">Registered apps</CardTitle>
+            <div className="p-2 rounded-lg bg-purple-50 dark:bg-purple-950">
+              <FileText className="h-5 w-5 text-purple-600" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-4xl font-bold tracking-tight">{stats.total_apps}</div>
+            <p className="text-xs text-muted-foreground mt-2">
+              {stats.apps_pending} pending approval in the registry
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="md:col-span-1 border-primary/20 shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-base font-semibold">KYC approved users</CardTitle>
+            <div className="p-2 rounded-lg bg-green-50 dark:bg-green-950">
+              <CheckCircle className="h-5 w-5 text-green-600" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-4xl font-bold tracking-tight">{stats.kyc_approved}</div>
+            <p className="text-xs text-muted-foreground mt-2">
+              {stats.kyc_rejected} rejected · {stats.kyc_pending + stats.kyc_in_review} awaiting decision
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="md:col-span-1 border-dashed bg-muted/30">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-base font-semibold text-muted-foreground">More metrics</CardTitle>
+            <div className="p-2 rounded-lg bg-muted">
+              <Sparkles className="h-5 w-5 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Coming soon: trend charts, cohort views, and exportable reports.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div>
+        <h2 className="text-lg font-semibold mb-4">Overview</h2>
+        <div className="grid gap-4 md:grid-cols-3">
+          {secondaryCards.map((stat) => {
+            const Icon = stat.icon;
+            return (
+              <Card key={stat.title}>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">{stat.title}</CardTitle>
+                  <div className={`p-2 rounded-lg ${stat.bgColor}`}>
+                    <Icon className={`h-4 w-4 ${stat.color}`} />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{stat.value}</div>
+                  <p className="text-xs text-muted-foreground mt-1">{stat.description}</p>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>KYC Status Breakdown</CardTitle>
+            <CardTitle>KYC status</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
@@ -112,7 +146,7 @@ export default function AdminDashboardPage() {
                 <span className="font-semibold">{stats.kyc_pending}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm">In Review</span>
+                <span className="text-sm">In review</span>
                 <span className="font-semibold">{stats.kyc_in_review}</span>
               </div>
               <div className="flex items-center justify-between">
@@ -129,22 +163,22 @@ export default function AdminDashboardPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>App Registry Status</CardTitle>
+            <CardTitle>App registry</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm">Total Apps</span>
+                <span className="text-sm">Total registered</span>
                 <span className="font-semibold">{stats.total_apps}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm">Pending Approval</span>
+                <span className="text-sm">Pending approval</span>
                 <span className="font-semibold text-yellow-600">{stats.apps_pending}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm">Approved</span>
                 <span className="font-semibold text-green-600">
-                  {stats.total_apps - stats.apps_pending}
+                  {Math.max(0, stats.total_apps - stats.apps_pending)}
                 </span>
               </div>
             </div>
@@ -154,7 +188,7 @@ export default function AdminDashboardPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>System Health</CardTitle>
+          <CardTitle>System health</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-2">

@@ -13,7 +13,7 @@ function renderSidebar(role: string) {
   vi.mocked(useAuth).mockReturnValue({
     user: { id: "u1", email: "x@y.com", role, username: "u", full_name: null, phone_number: null, is_active: true, is_email_verified: true, created_at: "" } as any,
     role: role as any,
-    login: async () => false,
+    login: async () => null,
     logout: () => {},
     isAuthenticated: true,
     isLoading: false,
@@ -36,7 +36,6 @@ describe("AppSidebar", () => {
 
   it("shows Apps hub for user role (no separate consent/sessions)", () => {
     renderSidebar("user");
-    expect(screen.getByText(/Dashboard/i)).toBeInTheDocument();
     expect(screen.getByText(/^Apps$/i)).toBeInTheDocument();
     expect(screen.getByText(/eKYC/i)).toBeInTheDocument();
     expect(screen.queryByText(/^Consent$/i)).not.toBeInTheDocument();

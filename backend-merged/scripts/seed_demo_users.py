@@ -32,6 +32,8 @@ class DemoUser:
 DEMO_USERS: tuple[DemoUser, ...] = (
     DemoUser("admin@fininfra.io", "admin", "admin123", "admin", "Admin User"),
     DemoUser("abebe@example.com", "abebe", "user123", "user", "Abebe Kebede"),
+    # Same role as abebe; use for demos where no KYC/trust history should exist (new identity only).
+    DemoUser("fresh@example.com", "fresh_demo", "fresh123", "user", "Fresh Demo User"),
     DemoUser("kyc@example.com", "kyc_reviewer", "kyc123", "kyc_approver", "KYC Verifier"),
     DemoUser("dev@example.com", "app_dev", "dev123", "app_owner", "App Owner"),
 )

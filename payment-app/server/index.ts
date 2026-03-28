@@ -1,9 +1,15 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import express from "express";
 import cors from "cors";
 import { config } from "./config";
+
 import { authorizePayment } from "./payment-service";
 import { verifyTrustLayerSignature } from "./webhook-verify";
 import { blockUser, unblockUser } from "./user-blocks";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 
@@ -13,6 +19,10 @@ app.use(
     credentials: true,
   })
 );
+
+const distPath = path.join(__dirname, "../dist");
+const serveSpa =
+  process.env.NODE_ENV === "production" && fs.existsSync(path.join(distPath, "index.html"));
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, service: "payment-app-api", mock: config.useMock });
@@ -42,6 +52,15 @@ app.post("/api/v1/payments/authorize", express.json(), async (req, res) => {
   }
 });
 
+const DEFAULT_OIDC_SCOPES = [
+  "openid",
+  "profile",
+  "email",
+  "phone",
+  "kyc_status",
+  "trust_score",
+];
+
 /** Proxy: POST TrustIdLayer /api/v1/auth/authorize (no secret). */
 app.post("/api/auth/authorize", express.json(), async (req, res) => {
   if (!config.trustIdBaseUrl || !config.clientId) {
@@ -49,7 +68,27 @@ app.post("/api/auth/authorize", express.json(), async (req, res) => {
     return;
   }
   try {
-    const body = { ...(req.body as object), client_id: config.clientId };
+    const raw = req.body as Record<string, unknown>;
+    const email =
+      (typeof raw.email === "string" && raw.email) ||
+      (typeof raw.username === "string" && raw.username) ||
+      "";
+    let scopes: string[] = DEFAULT_OIDC_SCOPES;
+    if (Array.isArray(raw.scopes) && raw.scopes.every((s) => typeof s === "string")) {
+      scopes = raw.scopes as string[];
+    } else if (typeof raw.scope === "string" && raw.scope.trim()) {
+      scopes = raw.scope.trim().split(/\s+/);
+    }
+    const body = {
+      email,
+      password: raw.password,
+      client_id: config.clientId,
+      redirect_uri: raw.redirect_uri,
+      scopes,
+      state: raw.state,
+      code_challenge: raw.code_challenge,
+      code_challenge_method: raw.code_challenge_method ?? "S256",
+    };
     const r = await fetch(`${config.trustIdBaseUrl}/api/v1/auth/authorize`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -123,6 +162,19 @@ app.post(
   }
 );
 
-app.listen(config.port, () => {
-  console.log(`API listening on http://localhost:${config.port}`);
+if (serveSpa) {
+  app.use(express.static(distPath));
+  app.use((req, res, next) => {
+    if (req.path.startsWith("/api")) {
+      next();
+      return;
+    }
+    res.sendFile(path.join(distPath, "index.html"), (err) => {
+      if (err) next(err);
+    });
+  });
+}
+
+app.listen(config.port, "0.0.0.0", () => {
+  console.log(`API listening on http://0.0.0.0:${config.port}`);
 });

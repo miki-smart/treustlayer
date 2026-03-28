@@ -4,15 +4,16 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { getHomePathForRole } from "@/lib/homePath";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import LoginPage from "./pages/LoginPage";
-import DashboardPage from "./pages/DashboardPage";
 import EKYCPage from "./pages/EKYCPage";
 import BiometricPage from "./pages/BiometricPage";
 import IdentityPage from "./pages/IdentityPage";
 import AppMarketplacePage from "./pages/AppMarketplacePage";
 import SettingsPage from "./pages/SettingsPage";
 import KYCQueuePage from "./pages/KYCQueuePage";
+import KYCApproverUserPage from "./pages/KYCApproverUserPage";
 import MyAppsPage from "./pages/MyAppsPage";
 import AppApprovalPage from "./pages/AppApprovalPage";
 import AdminDashboardPage from "./pages/AdminDashboardPage";
@@ -30,9 +31,9 @@ const Spinner = () => (
 );
 
 function LoginRoute() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, role } = useAuth();
   if (isLoading) return <Spinner />;
-  if (isAuthenticated) return <Navigate to="/dashboard" replace />;
+  if (isAuthenticated) return <Navigate to={getHomePathForRole(role)} replace />;
   return <LoginPage />;
 }
 
@@ -40,12 +41,11 @@ const AppRoutes = () => (
   <Routes>
     <Route path="/" element={<LoginRoute />} />
 
-    <Route path="/dashboard"  element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
     <Route path="/settings"   element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
 
     {/* End-user identity & integrations (role: user) */}
     <Route path="/ekyc"       element={<ProtectedRoute allow={["user"]}><EKYCPage /></ProtectedRoute>} />
-    <Route path="/biometric"  element={<ProtectedRoute allow={["user"]}><BiometricPage /></ProtectedRoute>} />
+    <Route path="/biometric"  element={<ProtectedRoute allow={["user", "admin"]}><BiometricPage /></ProtectedRoute>} />
     <Route path="/identity"   element={<ProtectedRoute allow={["user"]}><IdentityPage /></ProtectedRoute>} />
     {/* Legacy paths → unified Apps hub for end users */}
     <Route path="/connected-apps" element={<Navigate to="/apps?tab=connections" replace />} />
@@ -88,6 +88,11 @@ const AppRoutes = () => (
     <Route path="/kyc-queue" element={
       <ProtectedRoute allow={["admin", "kyc_approver"]}>
         <KYCQueuePage />
+      </ProtectedRoute>
+    } />
+    <Route path="/kyc-queue/user/:userId" element={
+      <ProtectedRoute allow={["admin", "kyc_approver"]}>
+        <KYCApproverUserPage />
       </ProtectedRoute>
     } />
 

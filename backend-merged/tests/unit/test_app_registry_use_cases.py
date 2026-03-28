@@ -161,6 +161,7 @@ class TestApproveAppUseCase:
         await use_case.execute(app_id="app-123")
         
         assert test_app.is_approved is True
+        assert test_app.is_public is True
         mock_repo.update.assert_called_once()
     
     @pytest.mark.asyncio

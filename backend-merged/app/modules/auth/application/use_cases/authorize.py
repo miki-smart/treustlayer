@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from app.core.exceptions import BadRequestError, UnauthorizedError
 from app.core.security import verify_password
+from app.modules.app_registry.domain.repositories.app_repository import AppRepository
 from app.modules.auth.domain.entities.authorization_code import AuthorizationCode
 from app.modules.auth.domain.repositories.auth_repository import AuthRepository
 from app.modules.identity.domain.repositories.user_repository import UserRepository
@@ -25,9 +26,11 @@ class AuthorizeUseCase:
         self,
         auth_repo: AuthRepository,
         user_repo: UserRepository,
+        app_repo: AppRepository,
     ):
         self.auth_repo = auth_repo
         self.user_repo = user_repo
+        self.app_repo = app_repo
     
     async def execute(
         self,
@@ -74,14 +77,22 @@ class AuthorizeUseCase:
             logger.warning(f"Login attempt for deactivated user: {user.id}")
             raise UnauthorizedError("Account is deactivated")
         
-        # 2. Validate client_id (simplified - in full implementation, check app_registry)
-        # For now, accept any client_id (will be validated in Feature #5)
+        # 2. Validate OAuth client against app registry
         if not client_id:
             raise BadRequestError("client_id is required")
+        registered = await self.app_repo.get_by_client_id(client_id)
+        if not registered:
+            raise BadRequestError("Unknown client_id")
+        if not registered.is_active:
+            raise BadRequestError("Client is inactive")
+        if not registered.is_approved:
+            raise BadRequestError("Client is not approved")
         
-        # 3. Validate redirect_uri (simplified - in full implementation, check against whitelist)
+        # 3. Validate redirect_uri against registered URIs
         if not redirect_uri:
             raise BadRequestError("redirect_uri is required")
+        if redirect_uri not in registered.redirect_uris:
+            raise BadRequestError("redirect_uri not registered for this client")
         
         # 4. Validate scopes (simplified - accept common OIDC scopes)
         valid_scopes = {"openid", "profile", "email", "phone", "kyc_status", "trust_score", "biometric", "identity"}
@@ -91,6 +102,9 @@ class AuthorizeUseCase:
         
         if "openid" not in scopes:
             raise BadRequestError("'openid' scope is required for OIDC")
+        
+        if not set(scopes).issubset(set(registered.allowed_scopes)):
+            raise BadRequestError("Requested scopes exceed those allowed for this client")
         
         # 5. Generate authorization code
         code = AuthorizationCode(

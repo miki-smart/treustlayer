@@ -16,7 +16,8 @@ class AppModel(Base):
     
     id = Column(UUID, primary_key=True)
     name = Column(String(200), nullable=False)
-    owner_id = Column(UUID, nullable=False, index=True)
+    # Must match DB: 001_initial_idaas_schema uses VARCHAR for owner_id (not native UUID).
+    owner_id = Column(String(255), nullable=False, index=True)
     client_id = Column(String(120), nullable=False, unique=True, index=True)
     client_secret_hash = Column(String(255), nullable=False)
     api_key_hash = Column(String(255), nullable=False)

@@ -1,9 +1,11 @@
 """
 KYC router — document submission and approval.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+import json
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from pydantic import BaseModel, Field
-from typing import List, Optional
 from datetime import date
 
 from app.core.config import settings
@@ -11,12 +13,21 @@ from app.api.dependencies import DBSession, CurrentUserId, require_kyc_approver
 from app.modules.kyc.infrastructure.persistence.kyc_repository_impl import SQLAlchemyKYCRepository
 from app.modules.identity.infrastructure.persistence.user_repository_impl import SQLAlchemyUserRepository
 from app.modules.kyc.application.services.file_storage_service import FileStorageService
+from app.modules.kyc.application.services.ocr_merge import average_id_confidence, merge_id_front_back
 from app.modules.kyc.application.services.ocr_service import OCRService
 from app.modules.kyc.application.use_cases.submit_kyc import SubmitKYCUseCase
 from app.modules.kyc.application.use_cases.approve_kyc import ApproveKYCUseCase
 from app.modules.kyc.application.use_cases.reject_kyc import RejectKYCUseCase
 from app.modules.kyc.application.use_cases.list_kyc_queue import ListKYCQueueUseCase
 from app.modules.kyc.domain.entities.kyc_verification import KYCStatus, KYCTier
+from app.modules.identity.presentation.schemas.user_schemas import UserResponse
+from app.modules.trust.application.use_cases.recalculate_trust_for_user import RecalculateTrustForUserUseCase
+from app.modules.trust.integration.recalculate_trust import recalculate_trust_for_user_session
+from app.modules.trust.presentation.helpers.trust_profile_response import build_trust_profile_response
+from app.modules.trust.presentation.schemas.trust_schemas import TrustProfileResponse
+from app.modules.biometric.infrastructure.persistence.biometric_repository_impl import SQLAlchemyBiometricRepository
+from app.modules.digital_identity.infrastructure.persistence.identity_repository_impl import SQLAlchemyDigitalIdentityRepository
+from app.modules.trust.infrastructure.persistence.trust_repository_impl import SQLAlchemyTrustRepository
 
 router = APIRouter()
 
@@ -49,6 +60,9 @@ class OcrExtractedData(BaseModel):
 class OcrRunResponse(BaseModel):
     success: bool
     extracted: OcrExtractedData
+    """Merged ID + utility fields (wizard summary)."""
+    id_front: Dict[str, Any] = Field(default_factory=dict)
+    id_back: Dict[str, Any] = Field(default_factory=dict)
     warnings: List[str]
     model_used: str
 
@@ -73,6 +87,16 @@ class KYCResponse(BaseModel):
     reviewer_id: Optional[str] = None
     submitted_at: Optional[str] = None
     reviewed_at: Optional[str] = None
+    extracted_data: Optional[Dict[str, Any]] = None
+    user_email: Optional[str] = None
+    user_phone: Optional[str] = None
+    trust_score: Optional[float] = None
+
+
+class KycApproverUserDetailResponse(BaseModel):
+    user: UserResponse
+    kyc: Optional[KYCResponse] = None
+    trust: TrustProfileResponse
 
 
 def _merge_ocr_to_extracted(
@@ -134,32 +158,48 @@ async def run_kyc_ocr(
     utility_bill_bytes = await utility_bill.read()
 
     ocr_service = OCRService()
-    id_ocr_result = await ocr_service.extract_id_document(id_front_bytes, id_back_bytes)
+    front_res = await ocr_service.extract_id_front(id_front_bytes)
+    back_res = (
+        await ocr_service.extract_id_back(id_back_bytes)
+        if id_back_bytes
+        else {"success": True, "extracted": {}, "confidence": 0.0}
+    )
     utility_ocr_result = await ocr_service.extract_utility_bill(utility_bill_bytes)
 
-    id_data = id_ocr_result.get("extracted") or {}
-    utility_data = utility_ocr_result.get("extracted") or {}
-    id_conf = float(id_ocr_result.get("confidence") or 0.0)
+    fe = dict(front_res.get("extracted") or {})
+    be = dict(back_res.get("extracted") or {})
+    utility_data = dict(utility_ocr_result.get("extracted") or {})
+    id_merge = merge_id_front_back(fe, be)
+    id_conf = average_id_confidence(
+        float(front_res.get("confidence") or 0.0),
+        float(back_res.get("confidence") or 0.0) if id_back_bytes else None,
+        bool(id_back_bytes),
+    )
     util_conf = float(utility_ocr_result.get("confidence") or 0.0)
 
     warnings: List[str] = []
     if not settings.GEMINI_API_KEY and not settings.GEMINI_OCR_MOCK:
         warnings.append("GEMINI_API_KEY is not set; OCR returned empty placeholders.")
-    warnings.extend(id_ocr_result.get("warnings") or [])
+    warnings.extend(front_res.get("warnings") or [])
+    warnings.extend(back_res.get("warnings") or [])
     warnings.extend(utility_ocr_result.get("warnings") or [])
-    if id_ocr_result.get("error"):
-        warnings.append(f"ID OCR: {id_ocr_result['error']}")
+    if front_res.get("error"):
+        warnings.append(f"ID front OCR: {front_res['error']}")
+    if id_back_bytes and back_res.get("error"):
+        warnings.append(f"ID back OCR: {back_res['error']}")
     if utility_ocr_result.get("error"):
         warnings.append(f"Utility bill OCR: {utility_ocr_result['error']}")
 
     extracted = _merge_ocr_to_extracted(
-        id_data,
+        id_merge,
         utility_data,
         id_conf,
         util_conf,
         had_id_back=bool(id_back_bytes),
     )
-    success = bool(id_ocr_result.get("success")) and bool(utility_ocr_result.get("success"))
+    success = bool(front_res.get("success")) and bool(utility_ocr_result.get("success"))
+    if id_back_bytes:
+        success = success and bool(back_res.get("success"))
     if settings.GEMINI_OCR_MOCK:
         model_used = "mock"
     elif not settings.GEMINI_API_KEY:
@@ -170,9 +210,38 @@ async def run_kyc_ocr(
     return OcrRunResponse(
         success=success,
         extracted=extracted,
+        id_front=fe,
+        id_back=be,
         warnings=warnings,
         model_used=model_used,
     )
+
+
+def _kyc_to_response(kyc, **extra: Any) -> KYCResponse:
+    base = dict(
+        id=kyc.id,
+        user_id=kyc.user_id,
+        status=kyc.status.value,
+        tier=kyc.tier.value,
+        full_name=kyc.full_name,
+        date_of_birth=kyc.date_of_birth,
+        document_type=kyc.document_type,
+        document_number=kyc.document_number,
+        address=kyc.address,
+        id_front_url=kyc.id_front_url,
+        id_back_url=kyc.id_back_url,
+        utility_bill_url=kyc.utility_bill_url,
+        face_image_url=kyc.face_image_url,
+        overall_confidence=kyc.overall_confidence,
+        risk_score=kyc.risk_score,
+        rejection_reason=kyc.rejection_reason,
+        reviewer_id=kyc.reviewer_id,
+        submitted_at=kyc.submitted_at.isoformat() if kyc.submitted_at else None,
+        reviewed_at=kyc.reviewed_at.isoformat() if kyc.reviewed_at else None,
+        extracted_data=kyc.extracted_data,
+    )
+    base.update(extra)
+    return KYCResponse(**base)
 
 
 @router.post("/submit", response_model=KYCResponse)
@@ -183,6 +252,7 @@ async def submit_kyc(
     id_back: UploadFile = File(None),
     utility_bill: UploadFile = File(...),
     face_image: UploadFile = File(...),
+    kyc_overrides: Optional[str] = Form(None),
 ):
     """
     Submit KYC documents for verification.
@@ -204,38 +274,28 @@ async def submit_kyc(
     id_back_bytes = await id_back.read() if id_back else None
     utility_bill_bytes = await utility_bill.read()
     face_image_bytes = await face_image.read()
-    
+
+    overrides: Optional[Dict[str, Any]] = None
+    if kyc_overrides:
+        try:
+            overrides = json.loads(kyc_overrides)
+            if not isinstance(overrides, dict):
+                overrides = None
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid kyc_overrides JSON")
+
     kyc = await use_case.execute(
         user_id=current_user_id,
         id_front_bytes=id_front_bytes,
         id_back_bytes=id_back_bytes,
         utility_bill_bytes=utility_bill_bytes,
         face_image_bytes=face_image_bytes,
+        overrides=overrides,
     )
-    
+
     await session.commit()
-    
-    return KYCResponse(
-        id=kyc.id,
-        user_id=kyc.user_id,
-        status=kyc.status.value,
-        tier=kyc.tier.value,
-        full_name=kyc.full_name,
-        date_of_birth=kyc.date_of_birth,
-        document_type=kyc.document_type,
-        document_number=kyc.document_number,
-        address=kyc.address,
-        id_front_url=kyc.id_front_url,
-        id_back_url=kyc.id_back_url,
-        utility_bill_url=kyc.utility_bill_url,
-        face_image_url=kyc.face_image_url,
-        overall_confidence=kyc.overall_confidence,
-        risk_score=kyc.risk_score,
-        rejection_reason=kyc.rejection_reason,
-        reviewer_id=kyc.reviewer_id,
-        submitted_at=kyc.submitted_at.isoformat() if kyc.submitted_at else None,
-        reviewed_at=kyc.reviewed_at.isoformat() if kyc.reviewed_at else None,
-    )
+
+    return _kyc_to_response(kyc)
 
 
 @router.get("/status", response_model=KYCResponse)
@@ -249,28 +309,8 @@ async def get_kyc_status(
     
     if not kyc:
         raise HTTPException(status_code=404, detail="No KYC submission found")
-    
-    return KYCResponse(
-        id=kyc.id,
-        user_id=kyc.user_id,
-        status=kyc.status.value,
-        tier=kyc.tier.value,
-        full_name=kyc.full_name,
-        date_of_birth=kyc.date_of_birth,
-        document_type=kyc.document_type,
-        document_number=kyc.document_number,
-        address=kyc.address,
-        id_front_url=kyc.id_front_url,
-        id_back_url=kyc.id_back_url,
-        utility_bill_url=kyc.utility_bill_url,
-        face_image_url=kyc.face_image_url,
-        overall_confidence=kyc.overall_confidence,
-        risk_score=kyc.risk_score,
-        rejection_reason=kyc.rejection_reason,
-        reviewer_id=kyc.reviewer_id,
-        submitted_at=kyc.submitted_at.isoformat() if kyc.submitted_at else None,
-        reviewed_at=kyc.reviewed_at.isoformat() if kyc.reviewed_at else None,
-    )
+
+    return _kyc_to_response(kyc)
 
 
 @router.get("/queue", response_model=List[KYCResponse])
@@ -292,30 +332,7 @@ async def list_kyc_queue(
     kyc_status = KYCStatus(status) if status else KYCStatus.PENDING
     verifications = await use_case.execute(kyc_status, skip, limit)
     
-    return [
-        KYCResponse(
-            id=kyc.id,
-            user_id=kyc.user_id,
-            status=kyc.status.value,
-            tier=kyc.tier.value,
-            full_name=kyc.full_name,
-            date_of_birth=kyc.date_of_birth,
-            document_type=kyc.document_type,
-            document_number=kyc.document_number,
-            address=kyc.address,
-            id_front_url=kyc.id_front_url,
-            id_back_url=kyc.id_back_url,
-            utility_bill_url=kyc.utility_bill_url,
-            face_image_url=kyc.face_image_url,
-            overall_confidence=kyc.overall_confidence,
-            risk_score=kyc.risk_score,
-            rejection_reason=kyc.rejection_reason,
-            reviewer_id=kyc.reviewer_id,
-            submitted_at=kyc.submitted_at.isoformat() if kyc.submitted_at else None,
-            reviewed_at=kyc.reviewed_at.isoformat() if kyc.reviewed_at else None,
-        )
-        for kyc in verifications
-    ]
+    return [_kyc_to_response(k) for k in verifications]
 
 
 class ApproveKYCRequest(BaseModel):
@@ -341,30 +358,11 @@ async def approve_kyc(
     
     tier = KYCTier(payload.tier)
     kyc = await use_case.execute(verification_id, current_user_id, tier, payload.notes)
-    
+
+    await recalculate_trust_for_user_session(session, kyc.user_id)
     await session.commit()
-    
-    return KYCResponse(
-        id=kyc.id,
-        user_id=kyc.user_id,
-        status=kyc.status.value,
-        tier=kyc.tier.value,
-        full_name=kyc.full_name,
-        date_of_birth=kyc.date_of_birth,
-        document_type=kyc.document_type,
-        document_number=kyc.document_number,
-        address=kyc.address,
-        id_front_url=kyc.id_front_url,
-        id_back_url=kyc.id_back_url,
-        utility_bill_url=kyc.utility_bill_url,
-        face_image_url=kyc.face_image_url,
-        overall_confidence=kyc.overall_confidence,
-        risk_score=kyc.risk_score,
-        rejection_reason=kyc.rejection_reason,
-        reviewer_id=kyc.reviewer_id,
-        submitted_at=kyc.submitted_at.isoformat() if kyc.submitted_at else None,
-        reviewed_at=kyc.reviewed_at.isoformat() if kyc.reviewed_at else None,
-    )
+
+    return _kyc_to_response(kyc)
 
 
 class RejectKYCRequest(BaseModel):
@@ -388,27 +386,55 @@ async def reject_kyc(
     use_case = RejectKYCUseCase(kyc_repo)
     
     kyc = await use_case.execute(verification_id, current_user_id, payload.reason)
-    
+
+    await recalculate_trust_for_user_session(session, kyc.user_id)
     await session.commit()
-    
-    return KYCResponse(
-        id=kyc.id,
-        user_id=kyc.user_id,
-        status=kyc.status.value,
-        tier=kyc.tier.value,
-        full_name=kyc.full_name,
-        date_of_birth=kyc.date_of_birth,
-        document_type=kyc.document_type,
-        document_number=kyc.document_number,
-        address=kyc.address,
-        id_front_url=kyc.id_front_url,
-        id_back_url=kyc.id_back_url,
-        utility_bill_url=kyc.utility_bill_url,
-        face_image_url=kyc.face_image_url,
-        overall_confidence=kyc.overall_confidence,
-        risk_score=kyc.risk_score,
-        rejection_reason=kyc.rejection_reason,
-        reviewer_id=kyc.reviewer_id,
-        submitted_at=kyc.submitted_at.isoformat() if kyc.submitted_at else None,
-        reviewed_at=kyc.reviewed_at.isoformat() if kyc.reviewed_at else None,
+
+    return _kyc_to_response(kyc)
+
+
+@router.get(
+    "/approver/users/{user_id}/detail",
+    response_model=KycApproverUserDetailResponse,
+    summary="User + KYC + trust for KYC approver",
+)
+async def get_approver_user_detail(
+    user_id: str,
+    session: DBSession,
+    _: None = Depends(require_kyc_approver),
+):
+    user_repo = SQLAlchemyUserRepository(session)
+    kyc_repo = SQLAlchemyKYCRepository(session)
+    trust_repo = SQLAlchemyTrustRepository(session)
+    biometric_repo = SQLAlchemyBiometricRepository(session)
+    identity_repo = SQLAlchemyDigitalIdentityRepository(session)
+
+    user_entity = await user_repo.get_by_id(user_id)
+    if not user_entity:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user_resp = UserResponse(
+        id=user_entity.id,
+        email=user_entity.email,
+        username=user_entity.username,
+        role=user_entity.role.value,
+        full_name=user_entity.full_name,
+        phone_number=user_entity.phone_number,
+        avatar=user_entity.avatar,
+        is_active=user_entity.is_active,
+        is_email_verified=user_entity.is_email_verified,
+        phone_verified=user_entity.phone_verified,
+        created_at=user_entity.created_at,
     )
+
+    kyc = await kyc_repo.get_by_user_id(user_id)
+    kyc_resp: Optional[KYCResponse] = _kyc_to_response(kyc) if kyc else None
+
+    recalc = RecalculateTrustForUserUseCase(
+        trust_repo, user_repo, kyc_repo, biometric_repo, identity_repo
+    )
+    profile = await recalc.execute(user_id)
+    await session.commit()
+
+    trust_resp = build_trust_profile_response(profile, user_entity)
+    return KycApproverUserDetailResponse(user=user_resp, kyc=kyc_resp, trust=trust_resp)

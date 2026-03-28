@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,6 +13,8 @@ interface TrustScoreWidgetProps {
 }
 
 export function TrustScoreWidget({ userId, showRefresh = false }: TrustScoreWidgetProps) {
+  const queryClient = useQueryClient();
+  const [recalculating, setRecalculating] = useState(false);
   const { data: profile, isLoading, refetch } = useQuery({
     queryKey: ['trust-profile', userId],
     queryFn: () => (userId ? trustApi.getUserProfile(userId) : trustApi.getProfile()),
@@ -126,11 +129,21 @@ export function TrustScoreWidget({ userId, showRefresh = false }: TrustScoreWidg
 
         {showRefresh && (
           <Button
-            onClick={() => refetch()}
+            disabled={recalculating}
+            onClick={async () => {
+              setRecalculating(true);
+              try {
+                await trustApi.evaluate();
+                await queryClient.invalidateQueries({ queryKey: ['trust-profile'] });
+                await refetch();
+              } finally {
+                setRecalculating(false);
+              }
+            }}
             variant="outline"
             className="w-full mt-4"
           >
-            <RefreshCw className="h-4 w-4 mr-2" />
+            <RefreshCw className={`h-4 w-4 mr-2 ${recalculating ? 'animate-spin' : ''}`} />
             Recalculate Score
           </Button>
         )}

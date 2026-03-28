@@ -9,6 +9,8 @@ import { PolicyTable } from "@/components/PolicyTable";
 import { mockTransactionHistory, type TransactionResponse } from "@/lib/trustid";
 import { fetchApiHealth } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { IdentityFromIdpDialog } from "@/components/IdentityFromIdpDialog";
+import { TrustLayerLaunchBanner } from "@/components/TrustLayerLaunchBanner";
 
 const Index = () => {
   const [transactions, setTransactions] = useState<TransactionResponse[]>(mockTransactionHistory);
@@ -33,6 +35,7 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      <IdentityFromIdpDialog />
       <header className="border-b border-border">
         <div className="container max-w-7xl mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
@@ -71,6 +74,7 @@ const Index = () => {
       </header>
 
       <main className="container max-w-7xl mx-auto px-6 py-8 space-y-8">
+        <TrustLayerLaunchBanner />
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}

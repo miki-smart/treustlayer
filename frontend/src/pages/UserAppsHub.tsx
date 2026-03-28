@@ -1,60 +1,12 @@
 import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { appsApi, AppResponse } from "@/services/api";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { appsApi } from "@/services/api";
+import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Globe, Copy, Check, Store } from "lucide-react";
-import { useState } from "react";
+import { Store, Link2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { UserConnectionsPanel } from "@/components/apps/UserConnectionsPanel";
-
-const scopeColors: Record<string, string> = {
-  openid: "bg-blue-100 text-blue-800",
-  profile: "bg-purple-100 text-purple-800",
-  email: "bg-green-100 text-green-800",
-};
-
-function ScopeTag({ scope }: { scope: string }) {
-  const cls = scopeColors[scope] || "bg-muted text-muted-foreground";
-  return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>{scope}</span>;
-}
-
-function MarketplaceCard({ app }: { app: AppResponse }) {
-  const [copied, setCopied] = useState(false);
-  const copyId = () => {
-    navigator.clipboard.writeText(app.client_id);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-  return (
-    <Card className="flex flex-col hover:shadow-md transition-shadow">
-      <CardHeader className="pb-2">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex-1 min-w-0">
-            <CardTitle className="text-base truncate">{app.name}</CardTitle>
-            <CardDescription className="mt-0.5 line-clamp-2">{app.description || "No description"}</CardDescription>
-          </div>
-          <Badge variant="default" className="text-xs shrink-0">Approved</Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="flex-1 space-y-3">
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Globe className="h-3.5 w-3.5 shrink-0" />
-          <code className="truncate max-w-[180px]">{app.client_id}</code>
-          <button type="button" onClick={copyId} className="hover:text-foreground transition-colors">
-            {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
-          </button>
-        </div>
-        {app.allowed_scopes?.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {app.allowed_scopes.slice(0, 6).map((s) => <ScopeTag key={s} scope={s} />)}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
+import { MarketplaceAppCard } from "@/components/apps/MarketplaceAppCard";
 
 export default function UserAppsHub() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -87,7 +39,10 @@ export default function UserAppsHub() {
             <Store className="h-4 w-4" />
             Marketplace
           </TabsTrigger>
-          <TabsTrigger value="connections">My connections</TabsTrigger>
+          <TabsTrigger value="connections" className="gap-1.5">
+            <Link2 className="h-4 w-4" />
+            My connections
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="marketplace" className="mt-4 space-y-3">
@@ -107,7 +62,7 @@ export default function UserAppsHub() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {marketplace.map((app) => (
-                <MarketplaceCard key={app.id} app={app} />
+                <MarketplaceAppCard key={app.id} app={app} variant="user" />
               ))}
             </div>
           )}

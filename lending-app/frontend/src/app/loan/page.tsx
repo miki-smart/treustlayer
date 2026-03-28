@@ -1,9 +1,16 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { LoanDesk } from "./loan-desk";
+import { LoanIdentityDialog } from "./identity-dialog";
+import { TrustLayerLaunchBanner } from "./trustlayer-launch-banner";
 
 export default function LoanPage() {
   return (
     <main className="mx-auto min-h-screen max-w-3xl px-6 py-12">
+      <Suspense fallback={null}>
+        <TrustLayerLaunchBanner />
+        <LoanIdentityDialog />
+      </Suspense>
       <Link href="/" className="text-sm text-[var(--muted)] hover:text-[var(--text)]">
         ← Home
       </Link>

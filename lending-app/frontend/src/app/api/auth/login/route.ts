@@ -5,16 +5,16 @@ import { codeChallengeS256, generateCodeVerifier } from "@/lib/pkce";
 import { authorize, exchangeCode } from "@/lib/trustidlayer/client";
 
 export async function POST(req: Request) {
-  let body: { username?: string; password?: string };
+  let body: { email?: string; username?: string; password?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
-  const username = body.username?.trim();
+  const email = (body.email ?? body.username)?.trim();
   const password = body.password;
-  if (!username || !password) {
-    return NextResponse.json({ error: "Username and password required" }, { status: 400 });
+  if (!email || !password) {
+    return NextResponse.json({ error: "Email and password required" }, { status: 400 });
   }
 
   const codeVerifier = generateCodeVerifier();
@@ -22,10 +22,9 @@ export async function POST(req: Request) {
   const state = base64Url(randomBytes(16));
 
   const auth = await authorize({
-    username,
+    email,
     password,
     state,
-    codeVerifier,
     codeChallenge,
   });
   if (!auth.ok) {
@@ -37,7 +36,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: tok.error }, { status: 401 });
   }
 
-  const res = NextResponse.json({ ok: true, redirect: "/loan" });
+  const res = NextResponse.json({ ok: true, redirect: "/loan?identity=1" });
   res.cookies.set(ACCESS_COOKIE, tok.tokens.access_token, {
     ...cookieBase,
     maxAge: tok.tokens.expires_in ?? 900,

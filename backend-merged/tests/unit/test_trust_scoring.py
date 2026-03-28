@@ -5,6 +5,7 @@ import pytest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
+from app.modules.auth.application.trust_risk import risk_level_and_flag
 from app.modules.trust.application.use_cases.calculate_trust_score import (
     CalculateTrustScoreUseCase,
 )
@@ -81,7 +82,7 @@ class TestCalculateTrustScoreUseCase:
         result = await use_case.execute(user_id=base_user.id)
         
         assert result.trust_score == 0.0
-        assert result.risk_level == "high"
+        assert risk_level_and_flag(result.trust_score)[0] == "high"
         mock_repos["trust_repo"].create.assert_called_once()
     
     @pytest.mark.asyncio
@@ -109,7 +110,7 @@ class TestCalculateTrustScoreUseCase:
         result = await use_case.execute(user_id=base_user.id)
         
         assert result.trust_score >= 20.0
-        assert result.email_verified is True
+        assert result.factors.get("email_verified") == 20
     
     @pytest.mark.asyncio
     async def test_trust_score_full_verification(self, use_case, mock_repos, base_user):
@@ -138,7 +139,7 @@ class TestCalculateTrustScoreUseCase:
         
         digital_identity = DigitalIdentity(
             user_id=base_user.id,
-            identity_id="did:trust:123",
+            unique_id="did:trust:123",
             status=IdentityStatus.ACTIVE,
         )
         
@@ -166,10 +167,10 @@ class TestCalculateTrustScoreUseCase:
         result = await use_case.execute(user_id=base_user.id)
         
         assert result.trust_score >= 90.0
-        assert result.risk_level == "low"
-        assert result.email_verified is True
-        assert result.phone_verified is True
+        assert risk_level_and_flag(result.trust_score)[0] == "low"
         assert result.kyc_tier == 3
         assert result.face_verified is True
         assert result.voice_verified is True
         assert result.digital_identity_active is True
+        assert result.factors.get("email_verified") == 20
+        assert result.factors.get("phone_verified") == 15

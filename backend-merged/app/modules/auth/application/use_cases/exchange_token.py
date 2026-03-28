@@ -11,7 +11,10 @@ from app.core.security import (
     generate_secure_token,
     hash_secret,
     verify_pkce,
+    verify_secret,
 )
+from app.modules.app_registry.domain.repositories.app_repository import AppRepository
+from app.modules.auth.application.trust_risk import risk_level_and_flag
 from app.modules.auth.domain.entities.refresh_token import RefreshToken
 from app.modules.auth.domain.repositories.auth_repository import AuthRepository
 from app.modules.biometric.domain.entities.biometric_record import (
@@ -47,6 +50,7 @@ class ExchangeTokenUseCase:
         trust_repo: TrustRepository,
         biometric_repo: BiometricRepository,
         identity_repo: DigitalIdentityRepository,
+        app_repo: AppRepository,
     ):
         self.auth_repo = auth_repo
         self.user_repo = user_repo
@@ -54,6 +58,7 @@ class ExchangeTokenUseCase:
         self.trust_repo = trust_repo
         self.biometric_repo = biometric_repo
         self.identity_repo = identity_repo
+        self.app_repo = app_repo
     
     async def execute(
         self,
@@ -108,6 +113,11 @@ class ExchangeTokenUseCase:
             logger.warning(f"Redirect URI mismatch for client {client_id}")
             raise UnauthorizedError("Redirect URI mismatch")
         
+        registered = await self.app_repo.get_by_client_id(client_id)
+        if not registered or not verify_secret(client_secret, registered.client_secret_hash):
+            logger.warning("Invalid client_secret for client %s", client_id)
+            raise UnauthorizedError("Invalid client credentials")
+        
         # 4. Verify PKCE if present
         if auth_code.requires_pkce():
             if not code_verifier:
@@ -148,6 +158,9 @@ class ExchangeTokenUseCase:
         # Check digital identity
         digital_identity = await self.identity_repo.get_by_user_id(user.id)
         
+        ts = float(trust.trust_score) if trust else 0.0
+        risk_level, risk_flag = risk_level_and_flag(ts)
+        
         # 7. Generate access token with enhanced claims
         extra_claims = {
             "username": user.username,
@@ -156,8 +169,9 @@ class ExchangeTokenUseCase:
             "email_verified": user.is_email_verified,
             "phone_verified": user.phone_verified,
             "kyc_tier": kyc.tier.value if kyc else "tier_0",
-            "trust_score": float(trust.trust_score) if trust else 0.0,
-            "risk_level": trust.risk_level if trust else "high",
+            "trust_score": ts,
+            "risk_level": risk_level,
+            "risk_flag": risk_flag,
             "biometric_verified": face_verified or voice_verified,
             "face_verified": face_verified,
             "voice_verified": voice_verified,

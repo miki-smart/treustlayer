@@ -101,6 +101,9 @@ def upgrade() -> None:
     op.create_index("ix_webhook_deliveries_status", "webhook_deliveries", ["status"], schema="webhook")
     op.create_index("ix_webhook_deliveries_next_retry_at", "webhook_deliveries", ["next_retry_at"], schema="webhook")
     
+    # Replace legacy audit.entries (001) — same index names would conflict with audit_entries below
+    op.drop_table("entries", schema="audit")
+    
     # Create audit_entries table
     op.create_table(
         "audit_entries",

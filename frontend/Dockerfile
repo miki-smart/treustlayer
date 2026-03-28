@@ -9,7 +9,9 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install --legacy-peer-deps
 
-# Copy source and build
+# Copy source and build (browser calls same-origin /api/v1; nginx proxies to backend)
+ARG VITE_API_BASE_URL=/api/v1
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 COPY . .
 RUN npm run build
 

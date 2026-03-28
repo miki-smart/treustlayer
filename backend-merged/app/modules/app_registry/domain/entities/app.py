@@ -45,8 +45,9 @@ class App:
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     
     def approve(self) -> None:
-        """Approve app for use."""
+        """Approve app for use and list it in the public marketplace."""
         self.is_approved = True
+        self.is_public = True
         self.updated_at = datetime.now(timezone.utc)
     
     def deactivate(self) -> None:

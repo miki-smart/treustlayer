@@ -63,24 +63,31 @@ class TestSubmitKYCUseCase:
             "uploads/kyc/user-123/utility_bill.jpg",
             "uploads/kyc/user-123/face_image.jpg",
         ]
-        mock_deps["ocr_service"].extract_id_document.return_value = {
-            "success": True,
-            "extracted": {
-                "full_name": "John Doe",
-                "date_of_birth": "1990-01-01",
-                "document_type": "passport",
-                "document_number": "AB123456",
-            },
-            "confidence": 0.95,
-        }
-        mock_deps["ocr_service"].extract_utility_bill.return_value = {
-            "success": True,
-            "extracted": {
-                "address": "123 Main St",
-                "billing_name": "John Doe",
-            },
-            "confidence": 0.90,
-        }
+        mock_deps["ocr_service"].extract_id_front = AsyncMock(
+            return_value={
+                "success": True,
+                "extracted": {
+                    "full_name": "John Doe",
+                    "date_of_birth": "1990-01-01",
+                    "document_type": "passport",
+                    "document_number": "AB123456",
+                },
+                "confidence": 0.95,
+            }
+        )
+        mock_deps["ocr_service"].extract_id_back = AsyncMock(
+            return_value={"success": True, "extracted": {}, "confidence": 0.0}
+        )
+        mock_deps["ocr_service"].extract_utility_bill = AsyncMock(
+            return_value={
+                "success": True,
+                "extracted": {
+                    "address": "123 Main St",
+                    "billing_name": "John Doe",
+                },
+                "confidence": 0.90,
+            }
+        )
         mock_deps["kyc_repo"].create.return_value = KYCVerification(
             user_id=test_user.id,
             status=KYCStatus.PENDING,

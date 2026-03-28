@@ -53,6 +53,16 @@ describe('AdminDashboardPage', () => {
     expect(totalUsers).toBeInTheDocument();
   });
 
+  it('should show registered apps and KYC approved prominently', async () => {
+    renderPage();
+
+    expect(await screen.findByText(/Registered apps/i)).toBeInTheDocument();
+    expect((await screen.findAllByText('25')).length).toBeGreaterThanOrEqual(1);
+    expect(await screen.findByText(/KYC approved users/i)).toBeInTheDocument();
+    expect((await screen.findAllByText('100')).length).toBeGreaterThanOrEqual(1);
+    expect(await screen.findByText(/Coming soon/i)).toBeInTheDocument();
+  });
+
   it('should show total users stat', async () => {
     renderPage();
     

@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback } from "react";
+import { Navigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { kycApi, KYCResponse, OcrExtractedData } from "@/services/api";
+import { kycApi, KYCResponse, OcrExtractedData, OcrResponse, trustApi } from "@/services/api";
 import { useToast } from "@/hooks/use-toast";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -142,6 +143,15 @@ function DropZone({
 
 // ── User Wizard ───────────────────────────────────────────────────────────────
 
+function strRecord(r: Record<string, unknown> | undefined): Record<string, string> {
+  const o: Record<string, string> = {};
+  if (!r) return o;
+  for (const [k, v] of Object.entries(r)) {
+    if (v != null && String(v).trim() !== "") o[k] = String(v);
+  }
+  return o;
+}
+
 function UserKYCWizard({ userId }: { userId: string }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -150,22 +160,68 @@ function UserKYCWizard({ userId }: { userId: string }) {
   const [idFront, setIdFront] = useState<UploadedFile | null>(null);
   const [idBack, setIdBack] = useState<UploadedFile | null>(null);
   const [utilityBill, setUtilityBill] = useState<UploadedFile | null>(null);
-  const [ocrResult, setOcrResult] = useState<{ extracted: OcrExtractedData; warnings: string[]; model_used: string } | null>(null);
-  const [edited, setEdited] = useState<Partial<OcrExtractedData>>({});
+  const [faceImage, setFaceImage] = useState<UploadedFile | null>(null);
+  const [ocrResult, setOcrResult] = useState<OcrResponse | null>(null);
+  const [frontFields, setFrontFields] = useState<Record<string, string>>({});
+  const [backFields, setBackFields] = useState<Record<string, string>>({});
+  const [utilFields, setUtilFields] = useState<Record<string, string>>({});
   const [docType, setDocType] = useState("national_id");
   const [submitted, setSubmitted] = useState<KYCResponse | null>(null);
 
   const { data: kycStatus, isLoading: loadingStatus } = useQuery({
-    queryKey: ["kyc-status-me", userId],
-    queryFn: () => kycApi.getStatus(userId),
+    queryKey: ["kyc-status-me"],
+    queryFn: async () => {
+      try {
+        return await kycApi.getStatus();
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : "";
+        if (msg.includes("404")) return null;
+        throw e;
+      }
+    },
     retry: false,
+  });
+
+  const { data: trustProfile } = useQuery({
+    queryKey: ["trust-profile-me"],
+    queryFn: () => trustApi.getProfile(),
+    enabled: !!kycStatus,
   });
 
   const ocrMutation = useMutation({
     mutationFn: () => kycApi.runOcr(idFront!.file, idBack!.file, utilityBill!.file),
     onSuccess: (data) => {
       setOcrResult(data);
-      setEdited(data.extracted);
+      const ex = data.extracted;
+      const fe = strRecord(data.id_front);
+      const be = strRecord(data.id_back);
+      setFrontFields({
+        ...fe,
+        full_name: fe.full_name || ex.full_name || "",
+        date_of_birth: fe.date_of_birth || ex.date_of_birth || "",
+        document_number: fe.document_number || ex.id_number || "",
+        gender: fe.gender || ex.gender || "",
+        nationality: fe.nationality || ex.nationality || "",
+        place_of_birth: fe.place_of_birth || ex.place_of_birth || "",
+        issue_date: fe.issue_date || ex.issue_date || "",
+        expiry_date: fe.expiry_date || ex.expiry_date || "",
+      });
+      setBackFields({
+        ...be,
+        mrz_line1: be.mrz_line1 || ex.mrz_line1 || "",
+        mrz_line2: be.mrz_line2 || ex.mrz_line2 || "",
+        expiry_date: be.expiry_date || "",
+        document_number: be.document_number || "",
+        issuing_authority: be.issuing_authority || "",
+      });
+      setUtilFields({
+        address: ex.address || "",
+        billing_name: ex.billing_name || "",
+        service_provider: ex.service_provider || "",
+        service_type: ex.service_type || "",
+        bill_date: ex.bill_date || "",
+        account_number: ex.account_number || "",
+      });
       setStep("review");
     },
     onError: (e: Error) => toast({ title: "OCR failed", description: e.message, variant: "destructive" }),
@@ -173,18 +229,32 @@ function UserKYCWizard({ userId }: { userId: string }) {
 
   const submitMutation = useMutation({
     mutationFn: () => {
-      const data = { ...ocrResult?.extracted, ...edited } as OcrExtractedData;
-      return kycApi.submitKyc(userId, {
-        document_type: docType,
-        document_number: data.id_number || "N/A",
-        document_url: null,
-        extracted_data: data as unknown as Record<string, unknown>,
-      });
+      const strip = (r: Record<string, string>) => {
+        const o: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(r)) {
+          if (v != null && String(v).trim() !== "") o[k] = v;
+        }
+        return o;
+      };
+      const id_front = strip(frontFields);
+      const id_back = strip(backFields);
+      const utility = strip(utilFields);
+      if (id_front.document_number == null && ocrResult?.extracted.id_number) {
+        id_front.document_number = ocrResult.extracted.id_number;
+      }
+      return kycApi.submitKyc(
+        idFront!.file,
+        idBack!.file,
+        utilityBill!.file,
+        faceImage!.file,
+        { document_type: docType, id_front, id_back, utility },
+      );
     },
     onSuccess: (res) => {
       setSubmitted(res);
       setStep("done");
-      qc.invalidateQueries({ queryKey: ["kyc-status-me", userId] });
+      qc.invalidateQueries({ queryKey: ["kyc-status-me"] });
+      qc.invalidateQueries({ queryKey: ["trust-profile-me"] });
     },
     onError: (e: Error) => toast({ title: "Submission failed", description: e.message, variant: "destructive" }),
   });
@@ -194,8 +264,13 @@ function UserKYCWizard({ userId }: { userId: string }) {
     return { file, preview };
   }
 
-  const allUploaded = !!idFront && !!idBack && !!utilityBill;
-  const merged = { ...ocrResult?.extracted, ...edited } as OcrExtractedData;
+  const allUploaded = !!idFront && !!idBack && !!utilityBill && !!faceImage;
+  const merged = {
+    ...ocrResult?.extracted,
+    ...frontFields,
+    ...utilFields,
+    id_number: frontFields.document_number || ocrResult?.extracted.id_number,
+  } as OcrExtractedData;
 
   const stepLabels: { key: WizardStep; label: string; icon: React.ElementType }[] = [
     { key: "docs",    label: "Upload",   icon: Upload },
@@ -243,7 +318,9 @@ function UserKYCWizard({ userId }: { userId: string }) {
                       <><span className="text-muted-foreground">Doc Number</span><span className="font-mono font-medium">{kycStatus.document_number}</span></>
                     )}
                     <span className="text-muted-foreground">Trust Score</span>
-                    <span className={`font-semibold ${kycStatus.trust_score >= 70 ? "text-emerald-600" : "text-amber-600"}`}>{kycStatus.trust_score} / 100</span>
+                    <span className={`font-semibold ${(trustProfile?.trust_score ?? 0) >= 70 ? "text-emerald-600" : "text-amber-600"}`}>
+                      {trustProfile != null ? `${Math.round(trustProfile.trust_score)} / 100` : "—"}
+                    </span>
                     {kycStatus.submitted_at && (
                       <><span className="text-muted-foreground">Submitted</span><span>{new Date(kycStatus.submitted_at).toLocaleDateString()}</span></>
                     )}
@@ -322,7 +399,7 @@ function UserKYCWizard({ userId }: { userId: string }) {
   }
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className={`mx-auto ${step === "review" ? "max-w-5xl" : "max-w-2xl"}`}>
       {/* Step progress bar */}
       <div className="flex items-center gap-1 mb-8 overflow-x-auto pb-1">
         {stepLabels.map(({ key, label, icon: Icon }, i) => {
@@ -350,7 +427,7 @@ function UserKYCWizard({ userId }: { userId: string }) {
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Upload className="h-5 w-5" /> Upload Identity Documents</CardTitle>
             <CardDescription>
-              Upload clear, well-lit photos or scans. All three documents are required.
+              Upload clear photos: ID front, ID back, utility bill, and a selfie for verification.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -378,6 +455,14 @@ function UserKYCWizard({ userId }: { userId: string }) {
               onFile={f => setUtilityBill(makeFile(f))}
               onClear={() => setUtilityBill(null)}
             />
+            <DropZone
+              label="Face photo (selfie)"
+              hint="Clear photo of your face — used for identity verification"
+              accept="image/*"
+              uploaded={faceImage}
+              onFile={f => setFaceImage(makeFile(f))}
+              onClear={() => setFaceImage(null)}
+            />
 
             <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-700 mt-2">
               <Info className="h-4 w-4 shrink-0 mt-0.5" />
@@ -393,7 +478,7 @@ function UserKYCWizard({ userId }: { userId: string }) {
                 className="gap-2"
               >
                 <Bot className="h-4 w-4" />
-                {allUploaded ? "Extract Data with AI" : `Upload all 3 documents (${[idFront, idBack, utilityBill].filter(Boolean).length}/3)`}
+                {allUploaded ? "Extract Data with AI" : `Upload all 4 items (${[idFront, idBack, utilityBill, faceImage].filter(Boolean).length}/4)`}
               </Button>
             </div>
           </CardContent>
@@ -477,38 +562,66 @@ function UserKYCWizard({ userId }: { userId: string }) {
             Review and correct any fields below before submitting.
           </p>
 
-          {/* Identity fields */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2"><User className="h-4 w-4" /> Identity Information</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {([
-                  ["full_name",     "Full Name"],
-                  ["id_number",     "ID Number"],
-                  ["date_of_birth", "Date of Birth"],
-                  ["gender",        "Gender"],
-                  ["nationality",   "Nationality"],
-                  ["place_of_birth","Place of Birth"],
-                  ["issue_date",    "Issue Date"],
-                  ["expiry_date",   "Expiry Date"],
-                ] as [keyof OcrExtractedData, string][]).map(([field, label]) => (
-                  <div key={field} className="space-y-1">
-                    <label className="text-xs font-medium text-muted-foreground">{label}</label>
-                    <Input
-                      value={(edited[field] as string) ?? (merged[field] as string) ?? ""}
-                      onChange={e => setEdited(prev => ({ ...prev, [field]: e.target.value }))}
-                      className={`h-8 text-sm ${!merged[field] ? "border-amber-300 bg-amber-50/30" : ""}`}
-                      placeholder={`Enter ${label.toLowerCase()}`}
-                    />
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Card className="border-primary/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2"><User className="h-4 w-4" /> ID — Front</CardTitle>
+                <CardDescription className="text-xs">Portrait side fields</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {([
+                    ["full_name", "Full Name"],
+                    ["document_number", "ID Number"],
+                    ["date_of_birth", "Date of Birth"],
+                    ["gender", "Gender"],
+                    ["nationality", "Nationality"],
+                    ["place_of_birth", "Place of Birth"],
+                    ["issue_date", "Issue Date"],
+                    ["expiry_date", "Expiry Date"],
+                  ] as const).map(([key, label]) => (
+                    <div key={key} className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">{label}</label>
+                      <Input
+                        value={frontFields[key] ?? ""}
+                        onChange={e => setFrontFields(prev => ({ ...prev, [key]: e.target.value }))}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
 
-          {/* Address fields */}
+            <Card className="border-primary/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2"><CreditCard className="h-4 w-4" /> ID — Back</CardTitle>
+                <CardDescription className="text-xs">MRZ and issuing details</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 gap-3">
+                  {([
+                    ["mrz_line1", "MRZ line 1"],
+                    ["mrz_line2", "MRZ line 2"],
+                    ["document_number", "Document number (if on back)"],
+                    ["expiry_date", "Expiry date"],
+                    ["issue_date", "Issue date"],
+                    ["issuing_authority", "Issuing authority"],
+                  ] as const).map(([key, label]) => (
+                    <div key={key} className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">{label}</label>
+                      <Input
+                        value={backFields[key] ?? ""}
+                        onChange={e => setBackFields(prev => ({ ...prev, [key]: e.target.value }))}
+                        className={`h-8 text-sm ${key.startsWith("mrz") ? "font-mono text-xs" : ""}`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2"><FileText className="h-4 w-4" /> Address & Utility Bill</CardTitle>
@@ -516,38 +629,25 @@ function UserKYCWizard({ userId }: { userId: string }) {
             <CardContent>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {([
-                  ["address",          "Residential Address"],
-                  ["billing_name",     "Name on Bill"],
+                  ["address", "Residential Address"],
+                  ["billing_name", "Name on Bill"],
                   ["service_provider", "Service Provider"],
-                  ["service_type",     "Service Type"],
-                  ["bill_date",        "Bill Date"],
-                  ["account_number",   "Account Number"],
-                ] as [keyof OcrExtractedData, string][]).map(([field, label]) => (
-                  <div key={field} className={`space-y-1 ${field === "address" ? "sm:col-span-2" : ""}`}>
+                  ["service_type", "Service Type"],
+                  ["bill_date", "Bill Date"],
+                  ["account_number", "Account Number"],
+                ] as const).map(([key, label]) => (
+                  <div key={key} className={`space-y-1 ${key === "address" ? "sm:col-span-2" : ""}`}>
                     <label className="text-xs font-medium text-muted-foreground">{label}</label>
                     <Input
-                      value={(edited[field] as string) ?? (merged[field] as string) ?? ""}
-                      onChange={e => setEdited(prev => ({ ...prev, [field]: e.target.value }))}
-                      className={`h-8 text-sm ${!merged[field] ? "border-amber-300 bg-amber-50/30" : ""}`}
-                      placeholder={`Enter ${label.toLowerCase()}`}
+                      value={utilFields[key] ?? ""}
+                      onChange={e => setUtilFields(prev => ({ ...prev, [key]: e.target.value }))}
+                      className="h-8 text-sm"
                     />
                   </div>
                 ))}
               </div>
             </CardContent>
           </Card>
-
-          {merged.mrz_line1 && (
-            <Card>
-              <CardHeader className="pb-1">
-                <CardTitle className="text-xs text-muted-foreground uppercase tracking-wide">Machine Readable Zone (MRZ)</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <code className="block bg-muted rounded-lg p-2 text-xs font-mono break-all">{merged.mrz_line1}</code>
-                {merged.mrz_line2 && <code className="block bg-muted rounded-lg p-2 text-xs font-mono break-all mt-1">{merged.mrz_line2}</code>}
-              </CardContent>
-            </Card>
-          )}
 
           <div className="flex justify-between">
             <Button variant="outline" size="sm" onClick={() => setStep("docs")}>← Re-upload</Button>
@@ -559,7 +659,7 @@ function UserKYCWizard({ userId }: { userId: string }) {
       )}
 
       {/* ── Step: Confirm & Submit ────────────────────────────────────────── */}
-      {step === "confirm" && (
+      {step === "confirm" && ocrResult && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5" /> Confirm Submission</CardTitle>
@@ -594,11 +694,11 @@ function UserKYCWizard({ userId }: { userId: string }) {
             {/* Summary */}
             <div className="rounded-xl border bg-muted/30 divide-y text-sm">
               {[
-                ["Name",        merged.full_name],
-                ["ID Number",   merged.id_number],
-                ["Date of Birth", merged.date_of_birth],
-                ["Nationality", merged.nationality],
-                ["Address",     merged.address],
+                ["Name", frontFields.full_name || merged.full_name],
+                ["ID Number", frontFields.document_number || merged.id_number],
+                ["Date of Birth", frontFields.date_of_birth || merged.date_of_birth],
+                ["Nationality", frontFields.nationality || merged.nationality],
+                ["Address", utilFields.address || merged.address],
               ].filter(([, v]) => v).map(([k, v]) => (
                 <div key={k} className="flex items-center gap-3 px-4 py-2.5">
                   <span className="text-muted-foreground w-28 shrink-0">{k}</span>
@@ -660,526 +760,6 @@ function UserKYCWizard({ userId }: { userId: string }) {
   );
 }
 
-// ── Admin / KYC Approver View ─────────────────────────────────────────────────
-
-/** Renders a labelled field row inside the detail sheet */
-function DetailRow({ label, value, mono = false }: { label: string; value: React.ReactNode; mono?: boolean }) {
-  if (!value) return null;
-  return (
-    <div className="flex items-start gap-3 py-2">
-      <span className="text-xs text-muted-foreground w-36 shrink-0 pt-0.5">{label}</span>
-      <span className={`text-sm font-medium flex-1 ${mono ? "font-mono text-xs" : ""}`}>{value}</span>
-    </div>
-  );
-}
-
-function AdminKYCView() {
-  const { role } = useAuth();
-  const { toast } = useToast();
-  const qc = useQueryClient();
-  const [filterStatus, setFilterStatus] = useState("all");
-
-  // Detail sheet state
-  const [detailRecord, setDetailRecord] = useState<KYCResponse | null>(null);
-
-  // Reject / flag dialog state
-  const [rejectDialog, setRejectDialog] = useState<{ id: string; action: "reject" | "flag" } | null>(null);
-  const [rejectReason, setRejectReason] = useState("");
-
-  // Delete confirmation dialog state
-  const [deleteId, setDeleteId] = useState<string | null>(null);
-
-  const { data: submissions = [], isLoading } = useQuery({
-    queryKey: ["kyc-submissions", filterStatus],
-    queryFn: () => kycApi.listSubmissions(filterStatus),
-  });
-
-  const approveMutation = useMutation({
-    mutationFn: (id: string) => kycApi.approve(id),
-    onSuccess: (updated) => {
-      qc.invalidateQueries({ queryKey: ["kyc-submissions"] });
-      toast({ title: "KYC approved", description: `${updated.user_name || "Applicant"} has been verified.` });
-      // Refresh detail sheet if open
-      if (detailRecord?.id === updated.id) setDetailRecord(updated);
-    },
-    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
-  });
-
-  const rejectMutation = useMutation({
-    mutationFn: ({ id, reason, action }: { id: string; reason: string; action: "reject" | "flag" }) =>
-      action === "reject" ? kycApi.reject(id, reason) : kycApi.flag(id, reason),
-    onSuccess: (updated, vars) => {
-      qc.invalidateQueries({ queryKey: ["kyc-submissions"] });
-      toast({ title: vars.action === "reject" ? "KYC rejected" : "KYC flagged" });
-      setRejectDialog(null);
-      setRejectReason("");
-      if (detailRecord?.id === updated.id) setDetailRecord(updated);
-    },
-    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => kycApi.delete(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["kyc-submissions"] });
-      toast({ title: "Record deleted" });
-      setDeleteId(null);
-      if (detailRecord?.id === deleteId) setDetailRecord(null);
-    },
-    onError: (e: Error) => toast({ title: "Delete failed", description: e.message, variant: "destructive" }),
-  });
-
-  const pending   = submissions.filter(s => s.status === "pending");
-  const inReview  = submissions.filter(s => s.status === "in_review");
-  const approved  = submissions.filter(s => s.status === "approved");
-  const rejected  = submissions.filter(s => s.status === "rejected");
-  const flagged   = submissions.filter(s => s.status === "flagged");
-
-  const riskData = [
-    { range: "Approved",  count: approved.length },
-    { range: "In Review", count: inReview.length },
-    { range: "Pending",   count: pending.length },
-    { range: "Flagged",   count: flagged.length },
-    { range: "Rejected",  count: rejected.length },
-  ];
-
-  const pieData = [
-    { name: "Approved", value: approved.length || 1, color: "hsl(142,71%,45%)" },
-    { name: "Pending",  value: pending.length  || 0, color: "hsl(38,92%,50%)" },
-    { name: "Flagged",  value: flagged.length  || 0, color: "hsl(0,84%,60%)" },
-    { name: "Rejected", value: rejected.length || 0, color: "hsl(0,72%,51%)" },
-  ].filter(d => d.value > 0);
-
-  const ocr = detailRecord?.extracted_data as Record<string, unknown> | null | undefined;
-
-  return (
-    <div className="space-y-6">
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard title="Total"     value={submissions.length}  icon={FileCheck} />
-        <StatCard title="Pending"   value={pending.length + inReview.length} icon={Clock} />
-        <StatCard title="Flagged"   value={flagged.length}  icon={AlertTriangle} iconColor="bg-amber-500" />
-        <StatCard title="Approved"  value={approved.length} icon={CheckCircle2} iconColor="bg-emerald-500" />
-      </div>
-
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <Card className="lg:col-span-2">
-          <CardHeader><CardTitle className="text-sm">Applications by Status</CardTitle></CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={riskData} barSize={28}>
-                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                <XAxis dataKey="range" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                <Tooltip />
-                <Bar dataKey="count" fill="hsl(221,83%,53%)" radius={[4,4,0,0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle className="text-sm">Status Distribution</CardTitle></CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={180}>
-              <PieChart>
-                <Pie data={pieData} cx="50%" cy="50%" innerRadius={45} outerRadius={72} dataKey="value" label={({ name, value }) => `${name} ${value}`} labelLine={false}>
-                  {pieData.map(e => <Cell key={e.name} fill={e.color} />)}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Table */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <CardTitle className="text-sm">KYC Submissions</CardTitle>
-            <div className="flex flex-wrap gap-1">
-              {["all", "pending", "in_review", "flagged", "approved", "rejected"].map(s => (
-                <Button
-                  key={s}
-                  variant={filterStatus === s ? "default" : "ghost"}
-                  size="sm"
-                  className="h-7 text-xs capitalize"
-                  onClick={() => setFilterStatus(s)}
-                >
-                  {s.replace("_", " ")}
-                  {s !== "all" && (
-                    <span className="ml-1 opacity-60">
-                      ({submissions.filter(a => a.status === s).length})
-                    </span>
-                  )}
-                </Button>
-              ))}
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : submissions.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <FileCheck className="h-10 w-10 mx-auto mb-2 opacity-30" />
-              <p>No KYC submissions found.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Applicant</TableHead>
-                    <TableHead>Document</TableHead>
-                    <TableHead>OCR Conf.</TableHead>
-                    <TableHead>Tier</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Submitted</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {submissions.map(a => (
-                    <TableRow
-                      key={a.id}
-                      className="cursor-pointer hover:bg-muted/40"
-                      onClick={() => setDetailRecord(a)}
-                    >
-                      <TableCell onClick={e => e.stopPropagation()}>
-                        <button
-                          className="text-left hover:underline"
-                          onClick={() => setDetailRecord(a)}
-                        >
-                          <p className="font-medium text-sm">{a.user_name || `User ${a.user_id.slice(0, 8)}`}</p>
-                          <p className="text-xs text-muted-foreground">{a.user_email || ""}</p>
-                        </button>
-                      </TableCell>
-                      <TableCell>
-                        <div>
-                          <p className="text-sm capitalize">{(a.document_type || "—").replace("_", " ")}</p>
-                          {a.document_number && <p className="text-xs text-muted-foreground font-mono">{a.document_number}</p>}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {a.ocr_confidence != null ? (
-                          <span className={`text-sm font-medium ${
-                            a.ocr_confidence >= 0.8 ? "text-emerald-600" :
-                            a.ocr_confidence >= 0.6 ? "text-amber-600" : "text-red-600"
-                          }`}>
-                            {a.ocr_confidence > 0 ? `${Math.round(a.ocr_confidence * 100)}%` : "Demo"}
-                          </span>
-                        ) : "—"}
-                      </TableCell>
-                      <TableCell>
-                        <span className={`text-xs font-medium ${TIER_INFO[a.tier]?.color ?? ""}`}>
-                          {a.tier}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge status={a.status} />
-                        {a.rejection_reason && (
-                          <p className="text-xs text-muted-foreground mt-0.5 max-w-[120px] truncate" title={a.rejection_reason}>
-                            {a.rejection_reason}
-                          </p>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {a.submitted_at ? new Date(a.submitted_at).toLocaleDateString() : "—"}
-                      </TableCell>
-                      <TableCell onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center gap-1">
-                          {/* View details */}
-                          <Button
-                            size="sm" variant="outline"
-                            className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50 hover:border-blue-300"
-                            title="View full details"
-                            onClick={() => setDetailRecord(a)}
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                          </Button>
-
-                          {/* Approve — only for pending/in_review */}
-                          {(a.status === "pending" || a.status === "in_review") && (
-                            <>
-                              <Button
-                                size="sm" variant="outline"
-                                className="h-7 w-7 p-0 text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300"
-                                title="Approve"
-                                disabled={approveMutation.isPending}
-                                onClick={() => approveMutation.mutate(a.id)}
-                              >
-                                <ThumbsUp className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button
-                                size="sm" variant="outline"
-                                className="h-7 w-7 p-0 text-red-600 hover:bg-red-50 hover:border-red-300"
-                                title="Reject"
-                                onClick={() => { setRejectDialog({ id: a.id, action: "reject" }); setRejectReason(""); }}
-                              >
-                                <ThumbsDown className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button
-                                size="sm" variant="outline"
-                                className="h-7 w-7 p-0 text-amber-600 hover:bg-amber-50 hover:border-amber-300"
-                                title="Flag for review"
-                                onClick={() => { setRejectDialog({ id: a.id, action: "flag" }); setRejectReason(""); }}
-                              >
-                                <Flag className="h-3.5 w-3.5" />
-                              </Button>
-                            </>
-                          )}
-
-                          {/* Delete — admin only */}
-                          {role === "admin" && (
-                            <Button
-                              size="sm" variant="outline"
-                              className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10 hover:border-destructive/40"
-                              title="Delete record"
-                              onClick={() => setDeleteId(a.id)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* ── Detail Sheet ───────────────────────────────────────────────────── */}
-      <Sheet open={!!detailRecord} onOpenChange={open => !open && setDetailRecord(null)}>
-        <SheetContent side="right" className="w-full sm:max-w-lg p-0 flex flex-col">
-          {detailRecord && (
-            <>
-              {/* Header */}
-              <SheetHeader className="px-6 py-5 border-b shrink-0">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <SheetTitle className="text-base">
-                      {detailRecord.user_name || `User ${detailRecord.user_id.slice(0, 8)}`}
-                    </SheetTitle>
-                    <p className="text-sm text-muted-foreground mt-0.5">{detailRecord.user_email || "—"}</p>
-                  </div>
-                  <StatusBadge status={detailRecord.status} />
-                </div>
-
-                {/* Quick-action buttons in header */}
-                {(detailRecord.status === "pending" || detailRecord.status === "in_review") && (
-                  <div className="flex gap-2 mt-3">
-                    <Button
-                      size="sm" className="gap-1.5 flex-1 bg-emerald-600 hover:bg-emerald-700"
-                      disabled={approveMutation.isPending}
-                      onClick={() => approveMutation.mutate(detailRecord.id)}
-                    >
-                      {approveMutation.isPending
-                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        : <ThumbsUp className="h-3.5 w-3.5" />}
-                      Approve
-                    </Button>
-                    <Button
-                      size="sm" variant="destructive" className="gap-1.5 flex-1"
-                      onClick={() => { setRejectDialog({ id: detailRecord.id, action: "reject" }); setRejectReason(""); }}
-                    >
-                      <ThumbsDown className="h-3.5 w-3.5" /> Reject
-                    </Button>
-                    <Button
-                      size="sm" variant="outline" className="gap-1.5 text-amber-600 border-amber-300 hover:bg-amber-50"
-                      onClick={() => { setRejectDialog({ id: detailRecord.id, action: "flag" }); setRejectReason(""); }}
-                    >
-                      <Flag className="h-3.5 w-3.5" /> Flag
-                    </Button>
-                  </div>
-                )}
-              </SheetHeader>
-
-              <ScrollArea className="flex-1">
-                <div className="px-6 py-4 space-y-5">
-
-                  {/* Application metadata */}
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Application Details</p>
-                    <div className="rounded-xl border divide-y bg-muted/20">
-                      <DetailRow label="Application ID"  value={<span className="font-mono text-xs">{detailRecord.id}</span>} />
-                      <DetailRow label="User ID"         value={<span className="font-mono text-xs">{detailRecord.user_id}</span>} />
-                      <DetailRow label="Submitted"       value={detailRecord.submitted_at ? new Date(detailRecord.submitted_at).toLocaleString() : "—"} />
-                      <DetailRow label="Reviewed"        value={detailRecord.reviewed_at ? new Date(detailRecord.reviewed_at).toLocaleString() : "Pending"} />
-                      <DetailRow label="KYC Tier"        value={<span className={TIER_INFO[detailRecord.tier]?.color}>{TIER_INFO[detailRecord.tier]?.label ?? detailRecord.tier}</span>} />
-                      <DetailRow label="Trust Score"     value={
-                        <span className={detailRecord.trust_score >= 70 ? "text-emerald-600" : "text-amber-600"}>
-                          {detailRecord.trust_score} / 100
-                        </span>
-                      } />
-                      {detailRecord.rejection_reason && (
-                        <div className="px-3 py-2.5">
-                          <p className="text-xs text-muted-foreground mb-1">Rejection / Flag Reason</p>
-                          <p className="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2">{detailRecord.rejection_reason}</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Document info */}
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Document</p>
-                    <div className="rounded-xl border divide-y bg-muted/20">
-                      <DetailRow label="Document Type"   value={<span className="capitalize">{(detailRecord.document_type || "—").replace("_", " ")}</span>} />
-                      <DetailRow label="Document Number" value={detailRecord.document_number} mono />
-                      <DetailRow label="OCR Confidence"  value={
-                        detailRecord.ocr_confidence != null
-                          ? <span className={detailRecord.ocr_confidence >= 0.8 ? "text-emerald-600" : "text-amber-600"}>
-                              {detailRecord.ocr_confidence > 0 ? `${Math.round(detailRecord.ocr_confidence * 100)}%` : "Demo / not available"}
-                            </span>
-                          : "—"
-                      } />
-                      <DetailRow label="Face Similarity"  value={detailRecord.face_similarity_score != null ? `${Math.round(detailRecord.face_similarity_score * 100)}%` : "—"} />
-                    </div>
-                  </div>
-
-                  {/* Extracted identity data from OCR */}
-                  {ocr && (
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-                        Extracted Identity Data <span className="normal-case font-normal">(from AI OCR)</span>
-                      </p>
-                      <div className="rounded-xl border divide-y bg-muted/20">
-                        <DetailRow label="Full Name"       value={ocr.full_name as string} />
-                        <DetailRow label="Date of Birth"   value={ocr.date_of_birth as string} />
-                        <DetailRow label="Gender"          value={ocr.gender as string} />
-                        <DetailRow label="Nationality"     value={ocr.nationality as string} />
-                        <DetailRow label="Place of Birth"  value={ocr.place_of_birth as string} />
-                        <DetailRow label="ID Number"       value={ocr.id_number as string} mono />
-                        <DetailRow label="Issue Date"      value={ocr.issue_date as string} />
-                        <DetailRow label="Expiry Date"     value={ocr.expiry_date as string} />
-                        <DetailRow label="Address"         value={ocr.address as string} />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Utility bill data */}
-                  {ocr && (ocr.service_provider || ocr.billing_name) && (
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Utility Bill / Address Proof</p>
-                      <div className="rounded-xl border divide-y bg-muted/20">
-                        <DetailRow label="Billing Name"    value={ocr.billing_name as string} />
-                        <DetailRow label="Service Provider" value={ocr.service_provider as string} />
-                        <DetailRow label="Service Type"    value={ocr.service_type as string} />
-                        <DetailRow label="Bill Date"       value={ocr.bill_date as string} />
-                        <DetailRow label="Account Number"  value={ocr.account_number as string} mono />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* MRZ */}
-                  {ocr && (ocr.mrz_line1 || ocr.mrz_line2) && (
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Machine Readable Zone (MRZ)</p>
-                      <div className="rounded-xl border bg-muted/20 p-3 space-y-1">
-                        {ocr.mrz_line1 && <code className="block text-xs font-mono break-all bg-muted rounded px-2 py-1">{ocr.mrz_line1 as string}</code>}
-                        {ocr.mrz_line2 && <code className="block text-xs font-mono break-all bg-muted rounded px-2 py-1">{ocr.mrz_line2 as string}</code>}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Danger zone */}
-                  {role === "admin" && (
-                    <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
-                      <p className="text-xs font-semibold text-destructive mb-2">Danger Zone</p>
-                      <p className="text-xs text-muted-foreground mb-3">
-                        Permanently delete this KYC record. This cannot be undone and will reset the user's verification status.
-                      </p>
-                      <Button
-                        variant="destructive" size="sm" className="gap-2"
-                        onClick={() => setDeleteId(detailRecord.id)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" /> Delete Record
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </ScrollArea>
-            </>
-          )}
-        </SheetContent>
-      </Sheet>
-
-      {/* ── Reject / Flag dialog ────────────────────────────────────────────── */}
-      <Dialog open={!!rejectDialog} onOpenChange={open => !open && setRejectDialog(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              {rejectDialog?.action === "flag"
-                ? <><Flag className="h-4 w-4 text-amber-500" /> Flag for Further Review</>
-                : <><ThumbsDown className="h-4 w-4 text-red-500" /> Reject Application</>}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 pt-1">
-            <p className="text-sm text-muted-foreground">
-              {rejectDialog?.action === "flag"
-                ? "Describe the concern that requires further investigation."
-                : "Provide a reason. The applicant will be notified."}
-            </p>
-            <Textarea
-              value={rejectReason}
-              onChange={e => setRejectReason(e.target.value)}
-              placeholder={rejectDialog?.action === "flag" ? "e.g. Document appears altered…" : "e.g. ID document is expired…"}
-              rows={3}
-            />
-            <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => setRejectDialog(null)}>Cancel</Button>
-              <Button
-                variant={rejectDialog?.action === "flag" ? "default" : "destructive"}
-                className="flex-1"
-                disabled={!rejectReason.trim() || rejectMutation.isPending}
-                onClick={() => rejectDialog && rejectMutation.mutate({ id: rejectDialog.id, reason: rejectReason, action: rejectDialog.action })}
-              >
-                {rejectMutation.isPending
-                  ? <Loader2 className="h-4 w-4 animate-spin" />
-                  : rejectDialog?.action === "flag" ? "Flag" : "Reject"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Delete confirmation dialog ──────────────────────────────────────── */}
-      <Dialog open={!!deleteId} onOpenChange={open => !open && setDeleteId(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-destructive">
-              <Trash2 className="h-4 w-4" /> Delete KYC Record
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 pt-1">
-            <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-3 text-sm text-destructive">
-              This will <strong>permanently delete</strong> the KYC submission and all associated extracted data. The applicant will need to re-submit. This action cannot be undone.
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => setDeleteId(null)}>Cancel</Button>
-              <Button
-                variant="destructive" className="flex-1 gap-2"
-                disabled={deleteMutation.isPending}
-                onClick={() => deleteId && deleteMutation.mutate(deleteId)}
-              >
-                {deleteMutation.isPending
-                  ? <Loader2 className="h-4 w-4 animate-spin" />
-                  : <><Trash2 className="h-4 w-4" /> Delete Permanently</>}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
 
 // ── Page root ─────────────────────────────────────────────────────────────────
 
@@ -1195,7 +775,7 @@ const EKYCPage = () => {
           ? "Manage KYC submissions, approve or reject applications"
           : "Verify your identity to unlock full financial services"}
       />
-      {isReviewer ? <AdminKYCView /> : <UserKYCWizard userId={user?.id ?? ""} />}
+      {isReviewer ? <Navigate to="/kyc-queue" replace /> : <UserKYCWizard userId={user?.id ?? ""} />}
     </div>
   );
 };

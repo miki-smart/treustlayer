@@ -4,7 +4,10 @@ import { recordFailure, recordSuccess, isCircuitOpen } from "./circuit-breaker";
 import type { IntrospectionResult } from "../shared/types";
 import type { KycTier } from "../shared/types";
 
-const REQUIRED_SCOPE = "kyc.read";
+function hasKycEntitlement(scopes: string[] | undefined): boolean {
+  if (!scopes?.length) return false;
+  return scopes.some((s) => s === "kyc.read" || s === "kyc_status" || s === "trust_score");
+}
 
 function buildUrl(path: string): string {
   return `${config.trustIdBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
@@ -33,7 +36,7 @@ function mockIntrospectForUser(userId: string): IntrospectionResult {
   return {
     active: true,
     sub: u.id,
-    scopes: ["openid", "profile.basic", "profile.phone", REQUIRED_SCOPE, "offline_access"],
+    scopes: ["openid", "profile", "phone", "kyc_status", "trust_score", "offline_access"],
     client_id: config.clientId || "demo_client",
     kyc_tier: u.kyc_tier,
     trust_score: u.trust_score,
@@ -139,17 +142,22 @@ export function validateIntrospectionData(data: IntrospectionResult): {
     return { ok: false, reason: "missing_trust_attributes" };
   }
   const scopes = data.scopes ?? [];
-  if (!scopes.includes(REQUIRED_SCOPE)) {
+  if (!hasKycEntitlement(scopes)) {
     return { ok: false, reason: "missing_kyc_scope" };
   }
   if (!data.sub) {
     return { ok: false, reason: "missing_sub" };
   }
+  const trust = Number(data.trust_score);
+  const risk_flag =
+    typeof data.risk_flag === "boolean"
+      ? data.risk_flag
+      : Number.isFinite(trust) && trust < 30;
   return {
     ok: true,
     sub: data.sub,
     kyc_tier: data.kyc_tier,
-    trust_score: data.trust_score,
-    risk_flag: Boolean(data.risk_flag),
+    trust_score: trust,
+    risk_flag,
   };
 }

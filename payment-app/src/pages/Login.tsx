@@ -4,7 +4,7 @@ import { Shield, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { generatePkcePair } from "@/lib/pkce";
-import { setAccessToken } from "@/lib/session";
+import { setAccessToken, storeIdentitySnapshotFromTokenResponse } from "@/lib/session";
 import { toast } from "sonner";
 
 function randomState(): string {
@@ -17,9 +17,19 @@ function base64Url(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+/** Must stay in sync with TrustIdLayer AuthorizeUseCase valid_scopes + app registry allowed_scopes. */
+const OIDC_SCOPES = [
+  "openid",
+  "profile",
+  "email",
+  "phone",
+  "kyc_status",
+  "trust_score",
+] as const;
+
 export default function Login() {
   const navigate = useNavigate();
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -42,10 +52,10 @@ export default function Login() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          username,
+          email,
           password,
           redirect_uri: redirectUri,
-          scope: "openid profile.basic profile.phone kyc.read offline_access",
+          scopes: [...OIDC_SCOPES],
           state,
           code_challenge,
           code_challenge_method: "S256",
@@ -85,6 +95,7 @@ export default function Login() {
       }
 
       setAccessToken(accessToken);
+      storeIdentitySnapshotFromTokenResponse(tokenJson);
       toast.success("Signed in");
       navigate("/");
     } catch {
@@ -109,11 +120,12 @@ export default function Login() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="text-xs text-muted-foreground uppercase tracking-wider">Username</label>
+            <label className="text-xs text-muted-foreground uppercase tracking-wider">Email</label>
             <Input
+              type="email"
               className="mt-1 bg-muted border-border"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               autoComplete="username"
               required
             />

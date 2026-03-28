@@ -61,7 +61,10 @@ class CalculateTrustScoreUseCase:
         voice_verified = any(r.status == BiometricStatus.VERIFIED for r in voice_records)
         
         digital_identity = await self.identity_repo.get_by_user_id(user_id)
-        digital_identity_active = digital_identity and digital_identity.status == IdentityStatus.ACTIVE
+        # Must be bool: `None and ...` yields None and breaks NOT NULL on trust.profiles.digital_identity_active
+        digital_identity_active = (
+            digital_identity is not None and digital_identity.status == IdentityStatus.ACTIVE
+        )
         
         account_age_days = (datetime.now(timezone.utc) - user.created_at).days
         

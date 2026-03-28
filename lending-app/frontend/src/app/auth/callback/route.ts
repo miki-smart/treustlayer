@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
     return res;
   }
 
-  const res = NextResponse.redirect(new URL("/loan", url.origin));
+  const res = NextResponse.redirect(new URL("/loan?identity=1", url.origin));
   clearOAuthCookies(res);
   res.cookies.set(ACCESS_COOKIE, tok.tokens.access_token, {
     ...cookieBase,

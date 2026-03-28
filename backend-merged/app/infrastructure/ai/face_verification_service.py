@@ -6,6 +6,9 @@ Features:
 - Liveness detection (basic)
 - Spoof detection (basic)
 - Face matching with ID document
+
+MVP note: liveness/spoof scores are heuristic (face size / simple proxies), not
+production-grade presentation-attack detection.
 """
 import io
 import logging

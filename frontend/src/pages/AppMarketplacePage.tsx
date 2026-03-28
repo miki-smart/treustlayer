@@ -12,6 +12,7 @@ import { Plus, CheckCircle2, XCircle, Shield, Globe, RefreshCcw, Copy, Check } f
 import { useToast } from "@/hooks/use-toast";
 import { PageHeader } from "@/components/shared/PageHeader";
 import UserAppsHub from "./UserAppsHub";
+import { MarketplaceAppCard } from "@/components/apps/MarketplaceAppCard";
 
 const scopeColors: Record<string, string> = {
   openid: "bg-blue-100 text-blue-800",
@@ -75,15 +76,15 @@ function AppCard({ app, onApprove, onDeactivate }: {
           </div>
         )}
         {(onApprove || onDeactivate) && (
-          <div className="flex gap-2 pt-2 border-t">
+          <div className="flex flex-col gap-2 pt-2 border-t sm:flex-row sm:flex-wrap">
             {onApprove && !app.is_approved && (
-              <Button size="sm" className="h-7 text-xs flex-1" onClick={() => onApprove(app.id)}>
-                <CheckCircle2 className="h-3 w-3 mr-1" /> Approve
+              <Button size="sm" className="h-8 text-xs w-full sm:w-auto sm:min-w-[7rem] sm:flex-1" onClick={() => onApprove(app.id)}>
+                <CheckCircle2 className="h-3 w-3 mr-1 shrink-0" /> Approve
               </Button>
             )}
             {onDeactivate && app.is_active && (
-              <Button size="sm" variant="destructive" className="h-7 text-xs flex-1" onClick={() => onDeactivate(app.id)}>
-                <XCircle className="h-3 w-3 mr-1" /> Deactivate
+              <Button size="sm" variant="destructive" className="h-8 text-xs w-full sm:w-auto sm:min-w-[7rem] sm:flex-1" onClick={() => onDeactivate(app.id)}>
+                <XCircle className="h-3 w-3 mr-1 shrink-0" /> Deactivate
               </Button>
             )}
           </div>
@@ -322,7 +323,7 @@ export default function AppMarketplacePage() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {marketplace.map(app => (
-                <AppCard key={app.id} app={app} />
+                <MarketplaceAppCard key={app.id} app={app} variant="user" />
               ))}
             </div>
           )}

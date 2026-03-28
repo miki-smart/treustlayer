@@ -1,12 +1,13 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { consentApi, appsApi, sessionApi, AppResponse, ConsentResponse, ActiveSessionResponse } from "@/services/api";
+import { consentApi, appsApi, sessionApi, type AppResponse, type ConsentResponse, type ActiveSessionResponse } from "@/services/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Link2, ShieldCheck, ExternalLink, MonitorSmartphone, Globe, LogOut, ShieldOff,
+  Link2, ShieldCheck, ExternalLink, MonitorSmartphone, Globe, LogOut, ShieldOff, Rocket,
 } from "lucide-react";
+import { openLaunchDashboardInNewTab } from "@/lib/launchDownstreamDashboard";
 import { useToast } from "@/hooks/use-toast";
 
 function buildClientLookup(apps: AppResponse[]): Map<string, AppResponse> {
@@ -22,6 +23,7 @@ function buildClientLookup(apps: AppResponse[]): Map<string, AppResponse> {
 export function UserConnectionsPanel() {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const [launchingId, setLaunchingId] = useState<string | null>(null);
 
   const { data: consents = [], isLoading: loadingConsents } = useQuery({
     queryKey: ["consents-mine"],
@@ -77,6 +79,22 @@ export function UserConnectionsPanel() {
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
+
+  const handleLaunch = async (meta: AppResponse | undefined, client_id: string) => {
+    if (!meta) {
+      toast({ title: "Cannot launch", description: "App metadata not found in marketplace.", variant: "destructive" });
+      return;
+    }
+    setLaunchingId(client_id);
+    try {
+      const url = await openLaunchDashboardInNewTab(meta);
+      if (!url) toast({ title: "Cannot launch", description: "Missing redirect URI for this app.", variant: "destructive" });
+    } catch (e) {
+      toast({ title: "Launch failed", description: e instanceof Error ? e.message : "Unknown error", variant: "destructive" });
+    } finally {
+      setLaunchingId(null);
+    }
+  };
 
   const revokeAllSessionsMutation = useMutation({
     mutationFn: async (client_id: string) => {
@@ -232,6 +250,18 @@ export function UserConnectionsPanel() {
               </div>
 
               <div className="flex flex-wrap justify-end gap-2 pt-2 border-t">
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={launchingId === c.client_id || !meta}
+                  title={meta ? "Open app dashboard with your TrustLayer context" : "App not in marketplace list"}
+                  onClick={() => handleLaunch(meta, c.client_id)}
+                >
+                  <Rocket className="h-4 w-4" />
+                  {launchingId === c.client_id ? "Opening…" : "Launch app"}
+                </Button>
                 <Button
                   type="button"
                   variant="destructive"

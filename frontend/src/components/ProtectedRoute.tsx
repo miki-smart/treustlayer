@@ -1,5 +1,6 @@
 import { Navigate } from "react-router-dom";
 import { useAuth, type UserRole } from "@/contexts/AuthContext";
+import { getHomePathForRole } from "@/lib/homePath";
 import { AppLayout } from "@/components/layout/AppLayout";
 
 const Spinner = () => (
@@ -18,6 +19,6 @@ export default function ProtectedRoute({
   const { isAuthenticated, isLoading, role } = useAuth();
   if (isLoading) return <Spinner />;
   if (!isAuthenticated) return <Navigate to="/" replace />;
-  if (allow && !allow.includes(role)) return <Navigate to="/dashboard" replace />;
+  if (allow && !allow.includes(role)) return <Navigate to={getHomePathForRole(role)} replace />;
   return <AppLayout>{children}</AppLayout>;
 }

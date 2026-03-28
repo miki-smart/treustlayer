@@ -83,8 +83,8 @@ class TrustProfile:
         
         self.trust_score = min(100, score)
         self.kyc_tier = kyc_tier
-        self.face_verified = face_verified
-        self.voice_verified = voice_verified
-        self.digital_identity_active = digital_identity_active
+        self.face_verified = bool(face_verified)
+        self.voice_verified = bool(voice_verified)
+        self.digital_identity_active = bool(digital_identity_active)
         self.factors = factors
         self.last_evaluated = datetime.now(timezone.utc)

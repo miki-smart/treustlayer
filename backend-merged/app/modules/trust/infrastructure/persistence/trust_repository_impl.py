@@ -22,9 +22,9 @@ class SQLAlchemyTrustRepository(TrustRepository):
             user_id=uuid.UUID(profile.user_id),
             trust_score=profile.trust_score,
             kyc_tier=profile.kyc_tier,
-            face_verified=profile.face_verified,
-            voice_verified=profile.voice_verified,
-            digital_identity_active=profile.digital_identity_active,
+            face_verified=bool(profile.face_verified),
+            voice_verified=bool(profile.voice_verified),
+            digital_identity_active=bool(profile.digital_identity_active),
             factors=profile.factors,
             last_evaluated=profile.last_evaluated,
         )
@@ -47,9 +47,9 @@ class SQLAlchemyTrustRepository(TrustRepository):
         
         model.trust_score = profile.trust_score
         model.kyc_tier = profile.kyc_tier
-        model.face_verified = profile.face_verified
-        model.voice_verified = profile.voice_verified
-        model.digital_identity_active = profile.digital_identity_active
+        model.face_verified = bool(profile.face_verified)
+        model.voice_verified = bool(profile.voice_verified)
+        model.digital_identity_active = bool(profile.digital_identity_active)
         model.factors = profile.factors
         model.last_evaluated = profile.last_evaluated
         
@@ -62,9 +62,9 @@ class SQLAlchemyTrustRepository(TrustRepository):
             user_id=str(model.user_id),
             trust_score=model.trust_score,
             kyc_tier=model.kyc_tier,
-            face_verified=model.face_verified,
-            voice_verified=model.voice_verified,
-            digital_identity_active=model.digital_identity_active,
-            factors=model.factors,
+            face_verified=bool(model.face_verified),
+            voice_verified=bool(model.voice_verified),
+            digital_identity_active=bool(model.digital_identity_active),
+            factors=model.factors or {},
             last_evaluated=model.last_evaluated,
         )

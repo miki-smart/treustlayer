@@ -1,3 +1,9 @@
+# OAuth redirect URIs to register in TrustIdLayer app registry (must match exactly):
+#   Lending app:  http://localhost:3000/auth/callback
+#   Payment app:  http://localhost:8080/auth/callback
+# Set client secrets (same values as seed_oauth_clients / appkeys):
+#   LENDING_OAUTH_CLIENT_SECRET, PAYMENT_OAUTH_CLIENT_SECRET — export or add to a .env file next to this compose file.
+
 version: "3.9"
 
 services:
@@ -57,8 +63,9 @@ services:
     container_name: trustlayer_frontend
     ports:
       - "5173:80"
+    # Browser must call same-origin /api/v1 (nginx proxies to backend). Do not set backend:8000 here.
     environment:
-      - VITE_API_BASE_URL=http://backend:8000/api/v1
+      - VITE_API_BASE_URL=/api/v1
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -66,6 +73,53 @@ services:
       - trustlayer_net
     depends_on:
       - backend
+    restart: on-failure
+
+  # Next.js lending desk — port 3000 (redirect URI: http://localhost:3000/auth/callback)
+  lending-app:
+    build:
+      context: ./lending-app/frontend
+      dockerfile: Dockerfile
+    container_name: trustlayer_lending_app
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      HOSTNAME: "0.0.0.0"
+      TRUSTIDLAYER_BASE_URL: http://backend:8000
+      TRUSTIDLAYER_CLIENT_ID: app_e03fc733d51d48ec
+      TRUSTIDLAYER_CLIENT_SECRET: ${LENDING_OAUTH_CLIENT_SECRET:-}
+      TRUSTIDLAYER_REDIRECT_URI: http://localhost:3000/auth/callback
+      TRUSTIDLAYER_MOCK: "false"
+      TRUSTIDLAYER_TIMEOUT_MS: "8000"
+    depends_on:
+      backend:
+        condition: service_started
+    networks:
+      - trustlayer_net
+    restart: on-failure
+
+  # Payment SPA + API — port 8080 (redirect URI: http://localhost:8080/auth/callback)
+  payment-app:
+    build:
+      context: ./payment-app
+      dockerfile: Dockerfile
+    container_name: trustlayer_payment_app
+    ports:
+      - "8080:8080"
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      TRUSTID_BASE_URL: http://backend:8000
+      TRUSTID_CLIENT_ID: app_7b0b6bb71afb49e4
+      TRUSTID_CLIENT_SECRET: ${PAYMENT_OAUTH_CLIENT_SECRET:-}
+      TRUSTID_REDIRECT_URI: http://localhost:8080/auth/callback
+      TRUSTID_USE_MOCK: "false"
+    depends_on:
+      backend:
+        condition: service_started
+    networks:
+      - trustlayer_net
     restart: on-failure
 
 volumes:

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
-import { setAccessToken } from "@/lib/session";
+import { setAccessToken, storeIdentitySnapshotFromTokenResponse } from "@/lib/session";
 import { toast } from "sonner";
 
 /**
@@ -44,6 +44,7 @@ export default function AuthCallback() {
           return;
         }
         setAccessToken(accessToken);
+        storeIdentitySnapshotFromTokenResponse(tokenJson);
         toast.success("Signed in");
         navigate("/", { replace: true });
       } catch {

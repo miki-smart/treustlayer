@@ -3,7 +3,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import CurrentUserId, DBSession, require_admin
+from app.api.dependencies import CurrentUserId, CurrentUserRole, DBSession, require_admin, require_kyc_approver
 from app.core.exceptions import ConflictError, NotFoundError, UnauthorizedError, ValidationError
 from app.modules.identity.application.dto.user_dto import RegisterUserDTO, UpdateProfileDTO
 from app.modules.identity.application.use_cases.email_verification import (
@@ -16,6 +16,10 @@ from app.modules.identity.application.use_cases.password_management import (
     ResetPasswordUseCase,
 )
 from app.modules.identity.application.use_cases.register_user import RegisterUserUseCase
+from app.modules.identity.application.use_cases.manual_verify_contact import (
+    ManualVerifyEmailUseCase,
+    ManualVerifyPhoneUseCase,
+)
 from app.modules.identity.application.use_cases.user_management import (
     AssignRoleUseCase,
     DeactivateUserUseCase,
@@ -37,6 +41,7 @@ from app.modules.identity.presentation.schemas.user_schemas import (
     UserUpdateRequest,
     VerifyEmailRequest,
 )
+from app.modules.trust.integration.recalculate_trust import recalculate_trust_for_user_session
 
 router = APIRouter()
 
@@ -97,12 +102,77 @@ async def get_my_profile(
 async def get_user(
     user_id: str,
     session: DBSession,
-    _current_user_id: CurrentUserId,
+    current_user_id: CurrentUserId,
+    role: CurrentUserRole,
 ):
+    if user_id != current_user_id and role not in ("admin", "kyc_approver"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     use_case = GetUserUseCase(_repo(session))
     try:
         result = await use_case.execute(user_id)
         return UserResponse(**result.__dict__)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.post(
+    "/users/{user_id}/verify-email",
+    response_model=UserResponse,
+    summary="Manually mark email verified (KYC approver / admin)",
+)
+async def manual_verify_email(
+    user_id: str,
+    session: DBSession,
+    _: None = Depends(require_kyc_approver),
+):
+    try:
+        user = await ManualVerifyEmailUseCase(_repo(session)).execute(user_id)
+        await recalculate_trust_for_user_session(session, user_id)
+        await session.commit()
+        return UserResponse(
+            id=user.id,
+            email=user.email,
+            username=user.username,
+            role=user.role.value,
+            full_name=user.full_name,
+            phone_number=user.phone_number,
+            avatar=user.avatar,
+            is_active=user.is_active,
+            is_email_verified=user.is_email_verified,
+            phone_verified=user.phone_verified,
+            created_at=user.created_at,
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.post(
+    "/users/{user_id}/verify-phone",
+    response_model=UserResponse,
+    summary="Manually mark phone verified (KYC approver / admin)",
+)
+async def manual_verify_phone(
+    user_id: str,
+    session: DBSession,
+    _: None = Depends(require_kyc_approver),
+):
+    try:
+        user = await ManualVerifyPhoneUseCase(_repo(session)).execute(user_id)
+        await recalculate_trust_for_user_session(session, user_id)
+        await session.commit()
+        return UserResponse(
+            id=user.id,
+            email=user.email,
+            username=user.username,
+            role=user.role.value,
+            full_name=user.full_name,
+            phone_number=user.phone_number,
+            avatar=user.avatar,
+            is_active=user.is_active,
+            is_email_verified=user.is_email_verified,
+            phone_verified=user.phone_verified,
+            created_at=user.created_at,
+        )
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 

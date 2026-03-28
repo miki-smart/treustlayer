@@ -10,9 +10,23 @@ from app.modules.identity.domain.repositories.user_repository import UserReposit
 from app.modules.kyc.domain.entities.kyc_verification import KYCVerification, KYCStatus, KYCTier
 from app.modules.kyc.domain.repositories.kyc_repository import KYCRepository
 from app.modules.kyc.application.services.file_storage_service import FileStorageService
+from app.modules.kyc.application.services.ocr_merge import merge_id_front_back
 from app.modules.kyc.application.services.ocr_service import OCRService
 
 logger = logging.getLogger(__name__)
+
+
+def _deep_merge_fields(base: Dict[str, Any], patch: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not patch:
+        return dict(base)
+    out = dict(base)
+    for k, v in patch.items():
+        if v is None:
+            continue
+        if isinstance(v, str) and not str(v).strip():
+            continue
+        out[k] = v
+    return out
 
 
 class SubmitKYCUseCase:
@@ -46,6 +60,7 @@ class SubmitKYCUseCase:
         id_back_bytes: Optional[bytes],
         utility_bill_bytes: bytes,
         face_image_bytes: bytes,
+        overrides: Optional[Dict[str, Any]] = None,
     ) -> KYCVerification:
         """
         Submit KYC documents.
@@ -93,17 +108,36 @@ class SubmitKYCUseCase:
             face_image_bytes, user_id, "face_image", "jpg"
         )
         
-        # 4. Run OCR extraction
-        id_ocr_result = await self.ocr_service.extract_id_document(
-            id_front_bytes, id_back_bytes
+        # 4. Run OCR extraction (split front / back + utility)
+        front_res = await self.ocr_service.extract_id_front(id_front_bytes)
+        back_res = (
+            await self.ocr_service.extract_id_back(id_back_bytes)
+            if id_back_bytes
+            else {"success": True, "extracted": {}, "confidence": 0.0}
         )
-        
         utility_ocr_result = await self.ocr_service.extract_utility_bill(utility_bill_bytes)
-        
+
+        fe = dict(front_res.get("extracted") or {})
+        be = dict(back_res.get("extracted") or {})
+        utility_data = dict(utility_ocr_result.get("extracted") or {})
+
+        ovr = overrides or {}
+        fe = _deep_merge_fields(fe, ovr.get("id_front") if isinstance(ovr.get("id_front"), dict) else None)
+        be = _deep_merge_fields(be, ovr.get("id_back") if isinstance(ovr.get("id_back"), dict) else None)
+        utility_data = _deep_merge_fields(
+            utility_data, ovr.get("utility") if isinstance(ovr.get("utility"), dict) else None
+        )
+
+        id_data = merge_id_front_back(fe, be)
+        id_data.pop("confidence", None)
+        if ovr.get("document_type"):
+            id_data["document_type"] = ovr["document_type"]
+
+        id_conf = float(front_res.get("confidence") or 0.0)
+        if id_back_bytes:
+            id_conf = (id_conf + float(back_res.get("confidence") or 0.0)) / 2.0
+
         # 5. Create KYC verification record
-        id_data = id_ocr_result.get("extracted", {})
-        utility_data = utility_ocr_result.get("extracted", {})
-        
         kyc = KYCVerification(
             user_id=user_id,
             status=KYCStatus.PENDING,
@@ -132,15 +166,14 @@ class SubmitKYCUseCase:
             documents_submitted=["id_front", "utility_bill", "face_image"]
             + (["id_back"] if id_back_bytes else []),
             extracted_data={
+                "id_front": fe,
+                "id_back": be,
                 "id_document": id_data,
                 "utility_bill": utility_data,
             },
-            id_ocr_confidence=id_ocr_result.get("confidence", 0.0),
+            id_ocr_confidence=id_conf,
             utility_ocr_confidence=utility_ocr_result.get("confidence", 0.0),
-            overall_confidence=(
-                id_ocr_result.get("confidence", 0.0) + utility_ocr_result.get("confidence", 0.0)
-            )
-            / 2.0,
+            overall_confidence=(id_conf + utility_ocr_result.get("confidence", 0.0)) / 2.0,
         )
         
         # 6. Calculate initial risk score (simplified)

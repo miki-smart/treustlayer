@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, FileCheck, Settings, Shield,
+  FileCheck, Settings, Shield,
   Store, ScanFace, Fingerprint,
   BarChart3, ClipboardList, ScrollText, Package, BadgeCheck,
 } from "lucide-react";
@@ -25,10 +25,6 @@ interface NavItem {
  * - app_owner: developers only (manage own OAuth clients via API; UI lists “mine” only).
  */
 function getNavSections(role: string): { label: string; items: NavItem[] }[] {
-  const overview: NavItem[] = [
-    { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  ];
-
   const identityVerification: NavItem[] = [
     { title: "eKYC", url: "/ekyc", icon: FileCheck },
     { title: "Biometric", url: "/biometric", icon: ScanFace },
@@ -43,6 +39,7 @@ function getNavSections(role: string): { label: string; items: NavItem[] }[] {
   const adminOps: NavItem[] = [
     { title: "Admin dashboard", url: "/admin", icon: BarChart3 },
     { title: "KYC queue", url: "/kyc-queue", icon: ClipboardList },
+    { title: "Biometric queue", url: "/biometric", icon: ScanFace },
     { title: "App approvals", url: "/app-approvals", icon: BadgeCheck },
     { title: "Audit logs", url: "/audit-logs", icon: ScrollText },
   ];
@@ -63,26 +60,22 @@ function getNavSections(role: string): { label: string; items: NavItem[] }[] {
   switch (role) {
     case "admin":
       return [
-        { label: "Overview", items: overview },
         { label: "Administration", items: adminOps },
         { label: "Developers", items: developer },
         { label: "System", items: system },
       ];
     case "kyc_approver":
       return [
-        { label: "Overview", items: overview },
         { label: "Verification", items: kycVerifier },
         { label: "System", items: system },
       ];
     case "app_owner":
       return [
-        { label: "Overview", items: overview },
         { label: "Developers", items: developer },
         { label: "System", items: system },
       ];
     default:
       return [
-        { label: "Overview", items: overview },
         { label: "Your identity", items: identityVerification },
         { label: "Apps & access", items: userAppsHub },
         { label: "System", items: system },
@@ -137,7 +130,7 @@ export function AppSidebar() {
                     <SidebarMenuButton asChild>
                       <NavLink
                         to={item.url}
-                        end={item.url === "/dashboard"}
+                        end={item.url === "/admin"}
                         className="flex items-center gap-3 rounded-lg px-3 py-2 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
                         activeClassName="bg-sidebar-primary/15 text-sidebar-primary-foreground font-medium border-l-2 border-sidebar-primary"
                       >
